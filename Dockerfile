@@ -1,7 +1,6 @@
-# Use Node.js 18 Alpine for smaller image size
 FROM node:18-alpine
 
-# Install PostgreSQL client for database operations
+# Install PostgreSQL client
 RUN apk add --no-cache postgresql-client
 
 # Set working directory
@@ -16,11 +15,11 @@ RUN npm ci --only=production
 # Copy source code
 COPY . .
 
-# Build the application (both client and server)
+# Build the application
 RUN npm run build
 
 # Expose port
-EXPOSE 3000
+EXPOSE 5000
 
 # Start the application
 CMD ["npm", "start"]
