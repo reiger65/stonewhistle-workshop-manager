@@ -1,0 +1,68 @@
+{
+  "flutes": {
+    "innato": {
+      "description": "A three-chambered vessel flute tuned to a minor pentatonic scale. Each chamber is fingered separately and can be played in combination.",
+      "key": "A minor",
+      "scale": ["A", "C", "D", "E"],
+      "chambers": {
+        "left_back": {
+          "range": ["A2", "C3", "D3", "E3"],
+          "fingering": ["left thumb", "left middle finger"]
+        },
+        "right_back": {
+          "range": ["A2", "C3", "D3", "E3"],
+          "fingering": ["right thumb", "right middle finger"]
+        },
+        "front": {
+          "range": ["A3", "C4", "D4", "E4"],
+          "fingering": ["left index finger", "right index finger"]
+        }
+      },
+      "techniques": {
+        "glissando": "Slide tones by partially covering holes.",
+        "taps": "Create percussive accents by finger tapping.",
+        "harmony": "Play two or three chambers simultaneously.",
+        "mirror_play": "Use left and right chambers for interactive patterns."
+      }
+    },
+
+    "double": {
+      "description": "Two parallel vessel flutes joined together, each tuned identically to a minor pentatonic scale. Played with both hands simultaneously.",
+      "key": "C minor",
+      "scale": ["C", "Eb", "F", "G", "Bb", "C2", "D", "Eb"],
+      "left_flute": {
+        "holes_front": ["pinky", "ring", "middle", "index"],
+        "hole_back": "thumb"
+      },
+      "right_flute": {
+        "holes_front": ["pinky", "ring", "middle", "index"],
+        "hole_back": "thumb"
+      },
+      "techniques": {
+        "stereo_play": "Both flutes together for wide sound.",
+        "drone_plus_melody": "One side plays a drone, other a melody.",
+        "alternating_melody": "Switch melodies between sides."
+      }
+    },
+
+    "natey": {
+      "description": "A closed vessel flute with Native American flute tuning. Same scale and fingering as a NAF, but sounds an octave lower. Includes an extra thumbhole.",
+      "key": "C minor",
+      "scale": ["C", "Eb", "F", "G", "Bb", "C2", "D", "Eb"],
+      "fingering": {
+        "top_holes": ["right ring", "right middle", "right index", "left index", "left middle", "left ring"],
+        "thumbhole": "left thumb",
+        "extra_top_hole": "top left hole",
+        "support": "pinkies support but do not play"
+      },
+      "techniques": {
+        "T_articulation": "Use tongue to articulate the start of a tone.",
+        "glissando": "Slowly lift fingers to slide between tones.",
+        "accents": "Use finger taps and breath dynamics.",
+        "dissonance_warning": "Uncovered holes produce dissonance.",
+        "breath_control": "Long exhalation with steady airflow."
+      },
+      "notes": "Cannot be overblown into second octave."
+    }
+  }
+}

@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Audio Test Pagina</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+      max-width: 600px;
+      margin: 0 auto;
+      padding: 20px;
+      line-height: 1.6;
+    }
+    h1 {
+      color: #2563eb;
+      margin-bottom: 1rem;
+    }
+    button {
+      background-color: #2563eb;
+      color: white;
+      border: none;
+      padding: 0.5rem 1rem;
+      border-radius: 0.25rem;
+      font-size: 1rem;
+      cursor: pointer;
+      margin-top: 0.5rem;
+      margin-bottom: 1rem;
+    }
+    button:hover {
+      background-color: #1d4ed8;
+    }
+    .card {
+      border: 1px solid #e5e7eb;
+      border-radius: 0.5rem;
+      padding: 1rem;
+      margin-bottom: 1rem;
+      background-color: #f9fafb;
+    }
+    .instructions {
+      margin-bottom: 1.5rem;
+    }
+    .success {
+      color: #16a34a;
+      font-weight: bold;
+    }
+    .error {
+      color: #dc2626;
+      font-weight: bold;
+    }
+  </style>
+</head>
+<body>
+  <h1>Audio Test Pagina</h1>
+  
+  <div class="instructions">
+    <p>
+      Deze pagina is bedoeld om het afspelen van geluiden in je browser te testen.
+      Druk op de onderstaande knop om een waterdruppel geluid af te spelen.
+    </p>
+  </div>
+
+  <div class="card">
+    <h2>Test Water Druppel Geluid</h2>
+    <p>Druk op de knop om het geluid te testen:</p>
+    <button id="playButton">Speel geluid af</button>
+    <div id="result"></div>
+  </div>
+
+  <div class="card">
+    <h2>Waarom deze pagina?</h2>
+    <p>
+      Moderne browsers hebben beveiligingsmaatregelen die voorkomen dat audio automatisch wordt afgespeeld 
+      zonder interactie van de gebruiker. Door op deze pagina op de knop te drukken, geef je de browser 
+      toestemming om audio af te spelen.
+    </p>
+    <p>
+      Nadat je hier één keer op de knop hebt gedrukt, zou het water-herinnering systeem in de hoofdapplicatie 
+      ook geluid moeten kunnen afspelen.
+    </p>
+  </div>
+
+  <script>
+    const playButton = document.getElementById('playButton');
+    const resultDiv = document.getElementById('result');
+    
+    playButton.addEventListener('click', () => {
+      resultDiv.textContent = 'Bezig met afspelen...';
+      resultDiv.className = '';
+      
+      try {
+        const audio = new Audio('/sounds/water_drop.mp3');
+        
+        audio.oncanplaythrough = () => {
+          audio.play()
+            .then(() => {
+              resultDiv.textContent = 'Geluid wordt afgespeeld! ✓';
+              resultDiv.className = 'success';
+            })
+            .catch(error => {
+              resultDiv.textContent = `Fout bij afspelen: ${error.message}`;
+              resultDiv.className = 'error';
+              console.error('Fout bij afspelen:', error);
+            });
+        };
+        
+        audio.onerror = (e) => {
+          resultDiv.textContent = `Fout bij laden van geluid: ${audio.error ? audio.error.message : 'Onbekende fout'}`;
+          resultDiv.className = 'error';
+          console.error('Audio laad fout:', audio.error);
+        };
+      } catch (error) {
+        resultDiv.textContent = `Fout bij maken van audio object: ${error.message}`;
+        resultDiv.className = 'error';
+        console.error('Fout bij maken van audio object:', error);
+      }
+    });
+  </script>
+</body>
+</html>

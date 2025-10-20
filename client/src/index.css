@@ -1,0 +1,1627 @@
+@import url('https://fonts.googleapis.com/css2?family=PT+Sans+Narrow:wght@400;700&display=swap');
+
+/* PERMANENT FIX FOR GREEN BACKGROUNDS - DO NOT REMOVE */
+/* Remove all styles for expanded rows - we'll use the row background color instead */
+/* Basic styles for all expanded item rows */
+.expanded-item-row,
+.expanded-item-row td,
+.expanded-item-cell,
+tr.expanded-item-row td,
+tr.expanded-item-row td[style],
+.material-column.expanded-item-cell,
+.expanded-item-row td[style*="background"],
+.sticky-header-table tr.expanded-item-row > td:not(:first-child),
+.sticky-header-table tr.expanded-item-row td.material-column,
+tbody tr.expanded-item-row td.material-column,
+.material-column[style][className*="expanded-item-cell"] {
+  /* Clear all background styles that might override our row styling */
+  background: transparent !important;
+  background-color: transparent !important;
+  background-image: none !important;
+}
+
+/* Special styling for second and subsequent rows in expanded items */
+tr.expanded-item-row:not(:first-of-type) td {
+  z-index: 0 !important;
+  position: relative !important;
+  background-color: #e2e2e2 !important;
+}
+
+/* Also fix when this appears in a different context */
+tr[class*="expanded-item"]:not(:first-of-type) td {
+  z-index: 0 !important;
+  position: relative !important;
+}
+
+/* Special handling for backgrounds in expanded rows */
+/* For rows that need their background color intact */
+.expanded-item-row div[style*="backgroundColor='#e2e2e2'"], 
+.expanded-item-row div[style*="backgroundColor='#eaeaea'"] {
+  background-color: #e2e2e2 !important;
+}
+
+/* Allow badge elements to keep their background colors */
+span[style*="backgroundColor: '#000000'"],
+span[style*="backgroundColor='#000000'"],
+span[style*="backgroundColor: '#22c55e'"],
+span[style*="backgroundColor='#22c55e'"],
+span[style*="backgroundColor: '#ef4444'"],
+span[style*="backgroundColor='#ef4444'"] {
+  background-color: initial !important;
+}
+
+/* Global badge reset - no borders or shadows for any badges */
+[data-instrument-type],
+.instrument-type-INNATO,
+.instrument-type-NATEY, 
+.instrument-type-ZEN,
+.instrument-type-DOUBLE,
+.instrument-type-OVA,
+.instrument-type-CARDS,
+span[style*="backgroundColor"],
+span[style*="background-color"],
+div[style*="backgroundColor"], 
+div[style*="background-color"] {
+  border: none !important;
+  box-shadow: none !important;
+  font-weight: 700 !important;
+}
+
+/* Ensure frequency badges always keep their colors */
+div[data-frequency="432"] {
+  background-color: #22c55e !important;
+  background: #22c55e !important;
+  color: white !important;
+  font-weight: 700 !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+div[data-frequency="440"] {
+  background-color: #ef4444 !important;
+  background: #ef4444 !important;
+  color: white !important;
+  font-weight: 700 !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+/* Ensure tuning note badges always show with medium gray background */
+div[data-tuning-note] {
+  background-color: #9ca3af !important; /* medium gray (gray-400) */
+  background: #9ca3af !important;
+  color: black !important;
+  font-weight: 700 !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+/* Only override certain divs, but not our badge divs */
+.expanded-item-row div[style*="#e2e2e2"]:not([style*="border"]) {
+  background-color: transparent !important;
+  background: transparent !important;
+}
+
+/* IMPORTANT - Preserve instrument type colors in expanded rows */
+/* 
+ * ISSUE: In the second and subsequent rows of expanded multi-item orders, the instrument type badges
+ * lose their background color. This happens because the expanded-item-row CSS class is overriding
+ * the background styles of the type-color class.
+ * 
+ * FIX: Instead of using 'unset' (which removes all background styling), we need to ensure
+ * the specific instrument type classes (.type-INNATO, .type-NATEY, etc.) are preserved
+ * in the expanded rows by setting initial values that can be overridden by more specific selectors.
+ */
+.expanded-item-row .type-color,
+.expanded-item-row td .type-color {
+  /* Use initial instead of unset to allow more specific selectors to override */
+  background-color: initial !important;
+  background: initial !important;
+}
+
+/* Restore specific instrument color classes */
+/* Instrument type colors with guaranteed white text */
+.type-INNATO, .expanded-item-row .type-INNATO {
+  background-color: #4f46e5 !important;
+  color: white !important;
+  font-weight: bold !important;
+  text-shadow: 0px 0px 1px rgba(0,0,0,0.5) !important;
+}
+
+.type-NATEY, .expanded-item-row .type-NATEY {
+  background-color: #f59e0b !important;
+  color: white !important;
+  font-weight: bold !important;
+  text-shadow: 0px 0px 1px rgba(0,0,0,0.5) !important;
+}
+
+.type-DOUBLE, .expanded-item-row .type-DOUBLE {
+  background-color: #8b5cf6 !important;
+  color: white !important;
+  font-weight: bold !important;
+  text-shadow: 0px 0px 1px rgba(0,0,0,0.5) !important;
+}
+
+.type-ZEN, .expanded-item-row .type-ZEN {
+  background-color: #0d9488 !important;
+  color: white !important;
+  font-weight: bold !important;
+  text-shadow: 0px 0px 1px rgba(0,0,0,0.5) !important;
+}
+
+.type-OVA, .expanded-item-row .type-OVA {
+  background-color: #ec4899 !important;
+  color: white !important;
+  font-weight: bold !important;
+  text-shadow: 0px 0px 1px rgba(0,0,0,0.5) !important;
+}
+
+.type-CARDS, .expanded-item-row .type-CARDS {
+  background-color: #f43f5e !important;
+  color: white !important;
+  font-weight: bold !important;
+  text-shadow: 0px 0px 1px rgba(0,0,0,0.5) !important;
+}
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Fix for SelectTrigger and SelectValue text color */
+[data-radix-select-trigger],
+[data-radix-select-value] {
+  color: black !important;
+  background-color: white !important;
+}
+
+@layer components {
+  .font-condensed {
+    font-family: 'PT Sans Narrow', sans-serif !important;
+    letter-spacing: 0 !important;
+    font-weight: 700 !important;
+  }
+  
+  /* Specifieke class voor navigatieknoppen met aangepaste lettergrootte */
+  .nav-button {
+    font-family: 'PT Sans Narrow', sans-serif !important;
+    letter-spacing: 0 !important;
+    font-weight: 700 !important;
+    /* Removed font-size restriction to allow individual components to set their own sizes */
+  }
+  
+  /* Regular navigation buttons should have small text */
+  button.nav-button {
+    font-size: 9px !important;
+  }
+  
+  /* Search input should match menu buttons style */
+  input.nav-button {
+    font-size: 13px !important;
+    color: #015a6c !important;
+  }
+  
+  /* Special class for mold numbers that allows larger font sizes */
+  .mold-number {
+    font-family: 'PT Sans Narrow', sans-serif !important;
+    letter-spacing: -1px !important;
+    font-weight: 700 !important;
+    line-height: 0.9 !important;
+    /* No font size restriction */
+  }
+}
+
+@layer utilities {
+  .py-0\.25 {
+    padding-top: 0.0625rem !important;
+    padding-bottom: 0.0625rem !important;
+  }
+}
+
+/* Apply PT Sans Narrow font to all table cells in the worksheet */
+.sticky-header-table th, 
+.sticky-header-table thead th, 
+.sticky-header-table .sticky-header,
+.sticky-header-table td,
+.sticky-header-table tr {
+  font-family: 'PT Sans Narrow', sans-serif !important;
+  font-size: 14pt !important;
+  font-weight: 700 !important;
+  letter-spacing: 0 !important;
+  text-align: center !important;
+}
+
+
+/* Apply PT Sans Narrow font to the top menu buttons */
+#root header > div > div button,
+#root .container .flex-1 button,
+.flex.items-center.gap-1.flex-shrink-0 button,
+#root header button,
+.offline-indicator,
+.sync-button {
+  font-family: 'PT Sans Narrow', sans-serif !important;
+  font-weight: 700 !important;
+  letter-spacing: 0 !important;
+}
+
+/* Theme variables */
+:root {
+  /* StoneFired Theme (Default) */
+  --header-bg: #015a6c;
+  --header-text: #ffffff;
+  --toolbar-bg: #f0f0f0;
+  --primary-button: #1F5B61;
+  --primary-button-hover: #174349;
+  --row-odd: #F5F5F0;
+  --row-even: #FCFCFB;
+  --status-column-bg: rgba(245, 247, 250, 0.75);
+  --material-column-bg: rgba(241, 245, 249, 0.5);
+  --notes-column-bg: rgba(248, 250, 252, 0.7);
+  --border-color: #e2e8f0;
+  --reseller-bg: #59296e;
+  --reseller-text: #ffffff;
+  
+  /* Left column styling (order number column) */
+  --left-column-bg: #f5f5f7; /* Grey background instead of green */
+  --left-column-text: #000000; /* Black text */
+  
+  /* Colors for instrument types */
+  --innato-color: #4f46e5;
+  --natey-color: #f59e0b;
+  --double-color: #8b5cf6;
+  --zen-color: #0d9488;
+  --ova-color: #ec4899;
+  --cards-color: #f43f5e;
+}
+
+/* Specific styles for header navigation buttons */
+.container button {
+  font-family: 'PT Sans Narrow', sans-serif !important;
+  letter-spacing: 0 !important;
+  font-weight: 700 !important;
+}
+
+/* Target the navigation buttons specifically */
+header button, 
+.container button.h-10,
+header .min-w-\[100px\],
+button.font-condensed {
+  font-family: 'PT Sans Narrow', sans-serif !important;
+  letter-spacing: 0 !important;
+  font-weight: 700 !important;
+  text-transform: uppercase !important;
+}
+
+/* Light Theme */
+[data-theme="light"] {
+  --header-bg: #3b82f6;
+  --header-text: #ffffff;
+  --toolbar-bg: #f8fafc;
+  --primary-button: #3b82f6;
+  --primary-button-hover: #2563eb;
+  --row-odd: #f8fafc;
+  --row-even: #ffffff;
+  --status-column-bg: rgba(241, 245, 249, 0.7);
+  --material-column-bg: rgba(248, 250, 252, 0.5);
+  --notes-column-bg: rgba(248, 250, 252, 0.4);
+  --border-color: #e2e8f0;
+  --reseller-bg: #8b5cf6;
+  --reseller-text: #ffffff;
+}
+
+/* Dark Theme */
+[data-theme="dark"] {
+  --header-bg: #1e293b;
+  --header-text: #ffffff;
+  --toolbar-bg: #0f172a;
+  --primary-button: #3b82f6;
+  --primary-button-hover: #2563eb;
+  --row-odd: #1e293b;
+  --row-even: #334155;
+  --status-column-bg: rgba(15, 23, 42, 0.7);
+  --material-column-bg: rgba(30, 41, 59, 0.7);
+  --notes-column-bg: rgba(51, 65, 85, 0.5);
+  --border-color: #475569;
+  --reseller-bg: #a855f7;
+  --reseller-text: #ffffff;
+}
+
+/* High Contrast Theme */
+[data-theme="high-contrast"] {
+  --header-bg: #000000;
+  --header-text: #ffffff;
+  --toolbar-bg: #f0f0f0;
+  --primary-button: #000000;
+  --primary-button-hover: #404040;
+  --row-odd: #ffffff;
+  --row-even: #f0f0f0;
+  --status-column-bg: rgba(220, 220, 220, 1);
+  --material-column-bg: rgba(200, 200, 200, 1);
+  --notes-column-bg: rgba(240, 240, 240, 1);
+  --border-color: #000000;
+  --reseller-bg: #9333ea;
+  --reseller-text: #ffffff;
+}
+
+/* Apple Style Theme */
+[data-theme="apple"] {
+  --header-bg: #ffffff;
+  --header-text: #000000;
+  --toolbar-bg: #f5f5f7;
+  --primary-button: #0969da;
+  --primary-button-hover: #0552a5;
+  --row-odd: #ffffff;
+  --row-even: #f5f5f7;
+  --status-column-bg: rgba(245, 245, 247, 0.8);
+  --material-column-bg: rgba(245, 245, 247, 0.5);
+  --notes-column-bg: rgba(245, 245, 247, 0.3);
+  --border-color: #e5e5e7;
+  --reseller-bg: #bf5af2;
+  --reseller-text: #ffffff;
+}
+
+/* Sticky header styles - fixed version */
+.sticky-header-container {
+  height: calc(100vh - 130px);
+  max-height: calc(100vh - 130px);
+  overflow: auto;
+  position: relative;
+  width: 100%;
+  margin-bottom: 0;
+  padding-bottom: 0;
+}
+
+.sticky-header-table {
+  border-collapse: separate;
+  border-spacing: 0;
+  width: 100%;
+  table-layout: auto;
+  overflow-x: auto; /* Hiermee zorgen we dat horizontaal scrollen mogelijk is */
+}
+
+/* TableHeader stijlen voor horizontale sticky header */
+.sticky-header-table thead {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  width: 100%;
+}
+
+.sticky-header {
+  position: sticky;
+  top: 0;
+  background-color: #015a6c;
+  z-index: 30;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  color: white !important;
+}
+
+/* Eerste kolom altijd zichtbaar bij horizontaal scrollen */
+.sticky-header:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 40; /* Hoger dan andere headers zodat deze altijd bovenop blijft */
+}
+
+/* Maak andere kolommen ook sticky horizontaal */
+.sticky-header {
+  position: sticky; /* Standaard sticky top (verticaal) */
+  min-width: 24px; /* Kleinere breedte om overlap te voorkomen */
+  white-space: nowrap; /* Voorkom tekstomloop */
+}
+
+/* Make sure text in table headers is white and visible */
+.sticky-header span {
+  color: white !important;
+  font-weight: bold !important;
+}
+
+/* Style for order numbers to ensure readability */
+.order-number-cell span.hover\:underline {
+  background-color: white !important;
+  color: black !important;
+  padding: 2px 4px !important;
+  border-radius: 4px !important;
+}
+
+/* Make sure reseller badge is white text on black background */
+.ml-1.text-xs.bg-black.text-white {
+  color: white !important;
+}
+
+/* Table border styling - clean grid layout with continuous lines */
+.sticky-header-table {
+  border-collapse: collapse !important;
+  border: 1px solid #666666 !important;
+}
+
+/* Basic style for all cells and rows */
+.sticky-header-table tr,
+.sticky-header-table tbody tr,
+.sticky-header-table td,
+.sticky-header-table th {
+  border: 1px solid #666666 !important;
+}
+
+/* Ensure each cell has borders on all sides */
+.sticky-header-table td,
+.sticky-header-table th {
+  border-bottom: 1px solid #666666 !important;
+  border-right: 1px solid #666666 !important;
+  border-top: 1px solid #666666 !important;
+  border-left: 1px solid #666666 !important;
+}
+
+/* Make multi-item rows consistent */
+.multi-item-row td,
+.multi-item-wrapper td,
+.expanded-item-row td,
+.order-row td {
+  border: 1px solid #666666 !important;
+}
+
+/* Extra styles for table headers */
+.sticky-header-table thead th {
+  background-color: var(--header-bg);
+  color: var(--header-text);
+  border-bottom: 2px solid #444444 !important;
+}
+
+/* Order isolation button styles */
+.isolation-button {
+  padding: 2px;
+  border-radius: 4px;
+  margin-left: 4px;
+  transition: all 0.2s;
+}
+
+.isolation-button:hover {
+  background-color: rgba(255, 255, 255, 0.2);
+}
+
+.isolation-active {
+  color: #f97316;
+}
+
+/* Isolation column button styling */
+.isolation-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 4px;
+  color: #64748b;
+  font-weight: bold;
+  margin: 0 auto;
+  transition: all 0.2s ease;
+  background: transparent;
+  border: none;
+}
+
+.isolation-btn:hover {
+  color: #334155;
+  transform: scale(1.1);
+}
+
+.isolation-btn.active {
+  color: #0891b2;
+  transform: scale(1.1);
+  filter: drop-shadow(0 0 1px rgba(8, 145, 178, 0.6));
+}
+
+/* Apply higher contrast on mobile devices */
+@media (max-width: 640px) {
+  .isolation-btn {
+    width: 28px;
+    height: 28px;
+  }
+  
+  .isolation-btn.active {
+    color: #0891b2;
+    filter: drop-shadow(0 0 1px rgba(8, 145, 178, 0.6));
+  }
+}
+
+.isolation-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background-color: #015a6c;
+  color: white;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 0.875rem;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  margin-right: 12px;
+}
+
+.isolation-clear-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background-color: rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  padding: 2px 6px;
+  transition: all 0.2s;
+  font-size: 0.75rem;
+}
+
+.isolation-clear-button:hover {
+  background-color: rgba(255, 255, 255, 0.2);
+}
+
+/* Fixed version with proper horizontal alignment */
+
+/* Main container styles */
+.sticky-header-container {
+  height: calc(100vh - 130px);
+  max-height: calc(100vh - 130px);
+  overflow: auto;
+  position: relative;
+  width: 100%;
+  margin-bottom: 0;
+  padding-bottom: 0;
+}
+
+/* Zorg ervoor dat alleen de tabel body scrollt en de header vast blijft staan */
+.sticky-header-table thead {
+  position: sticky;
+  top: 0;
+  z-index: 1000;
+  background-color: #015a6c;
+}
+
+/* Table layout styles - keeping columns aligned */
+.sticky-header-table {
+  /* Keep border-collapse: collapse from our earlier rule */
+  table-layout: auto;
+  width: auto;
+  min-width: 100%;
+  overflow-x: auto; /* Hiermee zorgen we dat horizontaal scrollen mogelijk is */
+}
+
+/* All header cells should stick to the top and have horizontal stickiness */
+.sticky-header-table th,
+.sticky-header-table .sticky-header {
+  position: sticky;
+  top: 0;
+  background-color: #015a6c;
+  color: white;
+  font-weight: bold;
+  z-index: 20;
+  white-space: nowrap;
+  padding: 8px 6px;
+  text-align: center;
+  font-family: 'PT Sans Narrow', sans-serif;
+  font-size: 14pt;
+  letter-spacing: 0;
+}
+
+/* Header styling with vertical sticky behavior */
+.sticky-header-table thead tr th {
+  position: sticky;
+  top: 0;
+  z-index: 100; /* Higher z-index to ensure headers stay on top */
+  background-color: #015a6c !important;
+  color: white !important;
+}
+
+/* Center all table cells */
+.sticky-header-table td {
+  text-align: center;
+  padding: 6px 4px;
+  vertical-align: middle;
+}
+
+/* Make the first column of data sticky horizontally */
+.sticky-header-table td:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 10;
+  background-color: var(--header-bg);
+  color: var(--header-text);
+}
+
+/* The corner cell (top-left) needs to stick in both directions */
+.sticky-header-table th:first-child,
+.sticky-header-table .sticky-header:first-child {
+  position: sticky;
+  left: 0;
+  top: 0;
+  z-index: 50; /* Must be highest to appear above everything */
+  background-color: #015a6c; /* Darker blue for the first column header */
+}
+
+/* Status columns should be horizontally sticky */
+.sticky-header-table .sticky-header {
+  position: sticky; /* Standaard sticky top (verticaal) */
+  min-width: 24px; /* Kleinere breedte om overlap te voorkomen */
+  white-space: nowrap; /* Voorkom tekstomloop */
+}
+
+/* Order isolation button */
+.isolation-button {
+  opacity: 0.95;
+  transition: all 0.2s ease;
+  border-radius: 6px;
+  padding: 3px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  background-color: rgba(255, 255, 255, 0.25);
+  color: var(--header-text);
+  margin-left: 4px;
+  border: 2px solid rgba(255, 255, 255, 0.4);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+.isolation-button:hover {
+  opacity: 1;
+  background-color: rgba(255, 255, 255, 0.4);
+  transform: scale(1.05);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+.isolation-active {
+  opacity: 1;
+  background-color: rgba(255, 95, 0, 0.7);
+  color: white;
+  border: 2px solid rgba(255, 255, 255, 0.6);
+  box-shadow: 0 2px 6px rgba(255, 95, 0, 0.4);
+}
+
+/* Mobile-specific isolation button - extremely visible styling */
+.mobile-isolation-button {
+  opacity: 1;
+  transition: all 0.2s ease;
+  border-radius: 50%; /* Make it circular */
+  padding: 3px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  background-color: #ff6b00; /* Brighter orange */
+  color: white;
+  border: 2px solid white;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+  z-index: 100; /* Very high z-index */
+  position: relative;
+  margin-right: 0;
+  -webkit-tap-highlight-color: transparent; /* Remove tap highlight on mobile */
+}
+
+.mobile-isolation-button:hover,
+.mobile-isolation-button:active,
+.mobile-isolation-button:focus {
+  transform: scale(1.1);
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.6);
+  background-color: #ff8500;
+}
+
+.mobile-isolation-button.isolation-active {
+  background-color: #e24c00;
+  border: 2px solid white;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.7);
+}
+
+/* Special SVG styling to ensure visibility */
+.mobile-isolation-button svg {
+  filter: drop-shadow(0px 1px 1px rgba(0, 0, 0, 0.4));
+  stroke-width: 2.5px;
+}
+
+/* Make isolation buttons more visible on smaller screens */
+@media (max-width: 768px) {
+  .mobile-isolation-button {
+    width: 40px;
+    height: 40px;
+    border-width: 2px;
+  }
+  
+  .mobile-isolation-button svg {
+    width: 24px !important;
+    height: 24px !important;
+  }
+}
+
+/* Even more visible on very small screens */
+@media (max-width: 480px) {
+  .mobile-isolation-button {
+    width: 46px;
+    height: 46px;
+    border-width: 3px;
+  }
+  
+  .mobile-isolation-button svg {
+    width: 28px !important;
+    height: 28px !important;
+  }
+}
+
+/* Highlighted isolated orders */
+.isolated-order {
+  box-shadow: 0 0 0 3px rgba(255, 95, 0, 0.4) !important;
+  position: relative;
+  background-color: rgba(255, 95, 0, 0.05) !important;
+  outline: 2px solid rgba(255, 95, 0, 0.4) !important;
+}
+
+/* Isolation indicator in the toolbar */
+.isolation-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background-color: rgba(255, 95, 0, 0.9);
+  color: white;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 0.875rem;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  margin-right: 12px;
+  font-weight: 500;
+}
+
+/* Clear isolation button */
+.isolation-clear-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background-color: rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+  padding: 2px 6px;
+  transition: all 0.2s;
+  font-size: 0.75rem;
+}
+
+.isolation-clear-button:hover {
+  background-color: rgba(255, 255, 255, 0.3);
+}
+
+/* Finish Colors for cells (material finish) */
+.finish-color {
+  @apply px-2 py-1 rounded text-center;
+  min-width: 50px;
+  font-weight: 900 !important; /* Extra bold */
+  font-family: 'PT Sans Narrow', sans-serif !important;
+  font-size: 14pt !important;
+}
+
+.finish-T {
+  background-image: repeating-linear-gradient(45deg, 
+    #FF6600 0px, 
+    #FF6600 7px, 
+    black 7px, 
+    black 14px
+  );
+  color: white;
+  text-shadow: 0px 0px 2px rgba(0, 0, 0, 0.8);
+  font-weight: bold;
+}
+
+/* We're using inline classes for finish-C now */
+
+.finish-SB {
+  @apply bg-teal-800 text-white;
+}
+
+.finish-B {
+  @apply bg-blue-200 text-blue-900;
+}
+
+/* Multi-item order expanded styles */
+.expanded-item-cell {
+  background-color: #e2e2e2 !important;
+}
+
+.multi-item-wrapper {
+  background-color: #e2e2e2 !important;
+}
+
+/* Instrument Type Colors */
+.type-color {
+  @apply font-bold px-2 py-1 rounded text-center;
+  min-width: 60px; /* Reduced from 70px to make the columns slimmer */
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+  font-family: 'PT Sans Narrow', sans-serif;
+}
+
+.type-INNATO {
+  @apply bg-indigo-600 text-white;
+}
+
+.type-NATEY {
+  @apply bg-amber-500 text-white;
+}
+
+.type-DOUBLE {
+  @apply bg-purple-600 text-white;
+}
+
+.type-ZEN {
+  @apply bg-teal-600 text-white;
+}
+
+.type-OVA {
+  @apply bg-emerald-600 text-white;
+}
+
+.type-CARDS {
+  @apply bg-rose-500 text-white;
+}
+
+/* Bag and Box styles */
+.bag-label, .box-label {
+  @apply inline-flex items-center justify-center px-2 py-1 rounded font-bold;
+  min-width: 50px;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  width: 100%;
+}
+
+/* Bag styles for different types */
+.bag-label.bag-Innato {
+  @apply bg-indigo-600 text-white;
+}
+
+.bag-label.bag-Natey {
+  @apply bg-amber-600 text-white;
+}
+
+.bag-label.bag-ZEN {
+  @apply bg-teal-600 text-white;
+}
+
+.bag-label.bag-Double {
+  @apply bg-purple-600 text-white;
+}
+
+.bag-label.bag-OvA {
+  @apply bg-emerald-600 text-white;
+}
+
+/* Special style for OvA bags */
+.bag-label.bag-OvAbag {
+  @apply bg-emerald-600 text-white;
+  /* Add a slight pattern for uniqueness */
+  background-image: linear-gradient(135deg, 
+    rgba(255, 255, 255, 0.1) 0%, 
+    rgba(255, 255, 255, 0.1) 25%, 
+    transparent 25%, 
+    transparent 50%, 
+    rgba(255, 255, 255, 0.1) 50%, 
+    rgba(255, 255, 255, 0.1) 75%, 
+    transparent 75%, 
+    transparent 100%
+  );
+  background-size: 10px 10px;
+}
+
+/* Default bag style if no specific type matches */
+.bag-S, .bag-M, .bag-L, .bag-XL, .bag-XXL, .bag-Bagpack {
+  /* This will only apply if none of the above classes match */
+  @apply bg-gray-600 text-white;
+}
+
+/* Removing these because they conflict with the bag labels */
+
+/* Box styles for specific types */
+.box-label.box-Envelope {
+  @apply bg-rose-500 text-white font-bold;
+  /* Add a simple pattern for envelope */
+  background-image: linear-gradient(45deg, 
+    rgba(255, 255, 255, 0.15) 25%, 
+    transparent 25%, 
+    transparent 50%, 
+    rgba(255, 255, 255, 0.15) 50%, 
+    rgba(255, 255, 255, 0.15) 75%, 
+    transparent 75%, 
+    transparent
+  );
+  background-size: 8px 8px;
+}
+
+/* Box size for OVA */
+.box-label.box-40x40x60 {
+  @apply bg-emerald-600 text-white font-bold;
+  /* Add a slight pattern for uniqueness */
+  background-image: linear-gradient(135deg, 
+    rgba(255, 255, 255, 0.15) 0%, 
+    rgba(255, 255, 255, 0.15) 25%, 
+    transparent 25%, 
+    transparent 50%, 
+    rgba(255, 255, 255, 0.15) 50%, 
+    rgba(255, 255, 255, 0.15) 75%, 
+    transparent 75%, 
+    transparent 100%
+  );
+  background-size: 10px 10px;
+}
+
+/* Box size for ZEN */
+.box-label.box-15x15x15 {
+  @apply bg-teal-600 text-white font-bold;
+}
+
+/* Box sizes for INNATO */
+.box-label.box-30x30x30 {
+  @apply bg-indigo-600 text-white font-bold;
+}
+
+.box-label.box-35x35x35 {
+  @apply bg-indigo-700 text-white font-bold;
+}
+
+/* Box size for NATEY */
+.box-label.box-30x12x12 {
+  @apply bg-amber-600 text-white font-bold;
+}
+
+/* Box size for DOUBLE */
+.box-label.box-20x20x20 {
+  @apply bg-purple-600 text-white font-bold;
+}
+
+/* Box size for CARDS (envelope) */
+.box-label.box-envelope {
+  @apply bg-rose-600 text-white font-bold;
+  /* Add a subtle pattern */
+  background-image: linear-gradient(135deg, 
+    rgba(255, 255, 255, 0.2) 0%, 
+    rgba(255, 255, 255, 0.2) 25%, 
+    transparent 25%, 
+    transparent 50%, 
+    rgba(255, 255, 255, 0.2) 50%, 
+    rgba(255, 255, 255, 0.2) 75%, 
+    transparent 75%, 
+    transparent 100%
+  );
+  background-size: 8px 8px;
+}
+
+/* Generic box sizes (fallback) */
+.box-small {
+  @apply bg-gray-500 text-white;
+}
+
+.box-medium {
+  @apply bg-gray-600 text-white;
+}
+
+.box-large {
+  @apply bg-gray-700 text-white;
+}
+
+/* Custom checkbox styling for worksheet */
+.checkbox-sm-auto {
+  @apply bg-gray-200 border-gray-400 !important;
+}
+
+.checkbox-sm-auto[data-state="checked"] {
+  @apply bg-gray-500 border-gray-600 !important;
+}
+
+.checkbox-dry {
+  @apply border-orange-500 border-2 !important;
+}
+
+.checkbox-dry[data-state="checked"] {
+  @apply bg-orange-500 text-white !important;
+}
+
+/* Use more specific selectors to ensure they override default styles */
+div[data-state="unchecked"].checkbox-sm-auto {
+  background-color: #e5e7eb !important;
+  border-color: #9ca3af !important;
+  margin: 0 auto !important;
+}
+
+div[data-state="checked"].checkbox-sm-auto {
+  background-color: #6b7280 !important;
+  border-color: #4b5563 !important;
+  margin: 0 auto !important;
+}
+
+div[data-state="unchecked"].checkbox-dry {
+  border-color: #f97316 !important;
+  border-width: 2px !important;
+  margin: 0 auto !important;
+}
+
+div[data-state="checked"].checkbox-dry {
+  background-color: #f97316 !important;
+  color: white !important;
+  margin: 0 auto !important;
+}
+
+/* Center any checkbox in the table */
+.sticky-header-table td .checkbox-wrapper {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  width: 100%;
+}
+
+/* Ensure all checkboxes in tables are properly centered */
+.sticky-header-table td [role="checkbox"] {
+  margin: 0 auto !important;
+}
+
+/* Status column styling */
+.status-column-group {
+  text-align: center !important;
+  vertical-align: middle !important;
+}
+
+/* Expanded row styling */
+.expanded-item-row {
+  vertical-align: top !important;
+}
+
+.expanded-item-row td {
+  vertical-align: top !important;
+}
+
+.expanded-item-row .expanded-item-cell {
+  vertical-align: top !important;
+}
+
+/* Make all checkboxes consistent in size */
+.sticky-header-table [role="checkbox"] {
+  height: 28px !important;
+  width: 28px !important;
+  margin: 0 auto !important;
+}
+
+/* Apply direct styling to checkbox inputs in table cells */
+.sticky-header-table td input[type="checkbox"] {
+  margin: 0 auto !important;
+}
+
+/* Ensure table cells with checkboxes have proper spacing */
+.sticky-header-table td {
+  padding: 8px 4px !important;
+  text-align: center !important;
+  vertical-align: middle !important;
+}
+
+/* Styling for selected rows - Oct 29, 2025 - ENHANCED */
+.selected-row td:not(:first-child) {
+  background-color: #dbeafe !important; /* Lichtblauw - sky-100 */
+  border-top: 1px solid #93c5fd !important; /* sky-300 - meer zichtbare rand */
+  border-bottom: 1px solid #93c5fd !important; /* sky-300 - meer zichtbare rand */
+}
+
+/* Ensure the selected row styling overrides all other background colors */
+tr.selected-row > td:not(:first-child) {
+  background-color: #dbeafe !important; /* Lichtblauw - sky-100 */
+  background-image: none !important;
+  background: #dbeafe !important;
+}
+
+/* Make sure all cells get the highlight with this very specific selector */
+tr.selected-row > td[style]:not(:first-child) {
+  background-color: #dbeafe !important; /* Lichtblauw - sky-100 */
+  background: #dbeafe !important;
+}
+
+/* Even more specific selectors to override everything */
+tr.selected-row > td[style*="F5F5F0"]:not(:first-child),
+tr.selected-row > td[style*="F9F0E8"]:not(:first-child),
+tr.selected-row > td[style*="FCFCFB"]:not(:first-child),
+tr.selected-row > td[style*="background-color"]:not(:first-child) {
+  background-color: #dbeafe !important; /* Lichtblauw - sky-100 */
+  background: #dbeafe !important;
+}
+
+/* Super explicit selector for TableCell elements with inline styles */
+tr.selected-row > td[class*="text-center"]:not(:first-child),
+tr.selected-row > td[class*="p-1"]:not(:first-child) {
+  background-color: #dbeafe !important; /* Lichtblauw - sky-100 */
+  background: #dbeafe !important;
+}
+
+/* Selected rows have consistent styling without hover effect */
+.selected-row {
+  background-color: #dbeafe !important; /* Lichtblauw - sky-100 */
+  background: #dbeafe !important;
+}
+
+/* This rule makes sure ALL cells in a selected row get the right background, regardless of their other classes */
+.selected-row > td:not(:first-child),
+tr.order-row.selected-row td:not(:first-child),
+tr.multi-item-row.selected-row td:not(:first-child),
+tr.expanded-item-row.selected-row td:not(:first-child) {
+  background-color: #dbeafe !important; /* Lichtblauw - sky-100 */
+  background: #dbeafe !important;
+  background-image: none !important;
+  border-color: #93c5fd !important;
+}
+
+/* Specific fixes for multi-item rows when selected */
+tr.multi-item-row.selected-row > td:not(:first-child),
+tr.multi-item-row.selected-row > td[style]:not(:first-child),
+tr.expanded-item-row.selected-row > td:not(:first-child),
+tr.expanded-item-row.selected-row > td[style]:not(:first-child) {
+  background-color: #dbeafe !important; /* Lichtblauw - sky-100 */
+  background: #dbeafe !important;
+  background-image: none !important;
+}
+
+/* Override any styles from Material columns, Notes, etc */
+tr.multi-item-row.selected-row > td.material-column,
+tr.multi-item-row.selected-row > td.notes-column,
+tr.multi-item-row.selected-row > td.instrument-column,
+tr.multi-item-row.selected-row > td.status-column-group,
+tr.expanded-item-row.selected-row > td.material-column,
+tr.expanded-item-row.selected-row > td.notes-column,
+tr.expanded-item-row.selected-row > td.instrument-column,
+tr.expanded-item-row.selected-row > td.status-column-group,
+/* Ultieme selectie voor alle cellen in geselecteerde rijen */
+tr.multi-item-row.selected-row td,
+tr.expanded-item-row.selected-row td,
+tr.multi-item-row.selected-row td.parts-cell,
+tr.multi-item-row.selected-row td.prepared-cell,
+tr.multi-item-row.selected-row td.build-cell,
+tr.multi-item-row.selected-row td.dry-cell,
+tr.multi-item-row.selected-row td.bag-ready-cell,
+tr.multi-item-row.selected-row td.box-ready-cell,
+tr.multi-item-row.selected-row td.labeling-cell,
+tr.multi-item-row.selected-row td:nth-child(3), /* Parts */
+tr.multi-item-row.selected-row td:nth-child(4), /* Prepared */
+tr.multi-item-row.selected-row td:nth-child(14), /* Notes */
+tr.multi-item-row.selected-row td:nth-child(15), /* BAG */
+tr.multi-item-row.selected-row td:nth-child(16), /* BOX */
+tr.multi-item-row.selected-row td:nth-child(17) /* LAB */ {
+  background-color: #dbeafe !important; /* Lichtblauw - sky-100 */
+  background: #dbeafe !important;
+  background-image: none !important;
+}
+
+/* Create checkbox wrapper for consistent alignment */
+.checkbox-wrapper {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  position: relative !important;
+  width: 100% !important;
+  height: 100% !important;
+}
+
+/* Make checkboxes consistent size */
+[role="checkbox"] {
+  width: 28px !important;
+  height: 28px !important;
+  margin: 0 auto !important;
+}
+
+/* Force blue color for checked checkboxes - added Oct 29, 2025 */
+[role="checkbox"][data-state="checked"] {
+  background-color: #3b82f6 !important;
+  color: white !important;
+  border-color: #3b82f6 !important;
+}
+
+/* Lichtere outline rond checkboxes in multi-item orders - specifiek voor status checkboxes */
+.multi-item-row td [role="checkbox"]:not([aria-controls]),
+.expanded-item-row td [role="checkbox"]:not([aria-controls]) {
+  border: 2px solid #d1d5db !important; /* Lichtere grijze rand */
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.8) !important; /* Duidelijke witte gloed */
+  background-color: white !important; /* Zorgt dat de checkbox zelf wit blijft */
+}
+
+/* Behoud blauwe randkleur voor aangevinkte checkboxes - alleen voor status checkboxes */
+.multi-item-row td [role="checkbox"][data-state="checked"]:not([aria-controls]),
+.expanded-item-row td [role="checkbox"][data-state="checked"]:not([aria-controls]) {
+  border-color: #3b82f6 !important;
+  background-color: #3b82f6 !important;
+}
+
+/* Stijl voor de "Toon selectie" knop */
+.selection-toggle-button {
+  display: flex;
+  align-items: center;
+  height: 28px;
+  padding: 0 8px;
+  font-size: 12px;
+  border-radius: 6px;
+  background-color: #dbeafe;
+  color: #1e40af;
+  border: 1px solid #3b82f6;
+  cursor: pointer;
+  transition: all 0.2s;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.selection-toggle-button:hover {
+  background-color: #bfdbfe;
+}
+
+.selection-toggle-button.active {
+  background-color: #3b82f6;
+  color: white;
+}
+
+.selection-toggle-button svg {
+  margin-right: 4px;
+  width: 12px;
+  height: 12px;
+}
+
+/* Z-index fixes for expanded multi-item orders */
+.order-number-cell {
+  position: sticky;
+  left: 0;
+  z-index: 30 !important;
+}
+
+/* Multi-item order styling - Clean and minimal approach */
+.multi-item-row > td:not(:first-child) {
+  background-color: #eaeaea !important; /* Light gray background for multi-item rows */
+  border: none !important;
+}
+
+/* Expanded multi-item rows get slightly darker */
+.expanded-item-row > td:not(:first-child) {
+  background-color: #e2e2e2 !important; /* Slightly darker gray for expanded items */
+  border: none !important;
+}
+
+/* Individual expanded cells */
+.expanded-item-cell {
+  background-color: #e2e2e2 !important; /* Slightly darker gray for expanded items */
+  border: none !important;
+}
+
+/* Order row styling - structure and organization */
+.order-row {
+  border-bottom: 1px solid #e5e7eb;
+  position: relative;
+}
+
+.order-row:first-child {
+  border-top: 2px solid var(--separator-color);
+}
+
+.order-row:last-child {
+  border-bottom: 2px solid var(--separator-color);
+}
+
+/* Regular order row styling with alternating colors */
+tr.order-row:not(.expanded-item-row) {
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+}
+
+/* Make sure all first columns preserve styling */
+.sticky-header-table td:first-child,
+.expanded-item-row > td:first-child {
+  background-color: var(--header-color) !important;
+  color: var(--header-text-color) !important;
+  font-family: 'PT Sans Narrow', sans-serif !important;
+  font-size: 14pt !important;
+  font-weight: 700 !important;
+  z-index: 20 !important;
+}
+
+/* Multi-item expanded rows */
+.expanded-item-row {
+  position: relative;
+}
+
+.expanded-item-row > td {
+  position: relative;
+  z-index: 10;
+}
+
+/* Prevent first column overlay */
+.expanded-item-row > td:first-child::before {
+  display: none;
+}
+
+/* Subtle indicator for alternating column groups */
+tr th:nth-child(3n+1) {
+  border-left: 1px dashed #d1d5db;
+}
+
+/* Add column group indicators - only for non-multi-item rows */
+.order-row:not(.multi-item-row):not(.expanded-item-row) .material-column {
+  background-color: rgba(241, 245, 249, 0.5) !important;
+}
+
+/* Override material column background for multi-item rows - with greater specificity */
+.multi-item-row > td.material-column {
+  background-color: #eaeaea !important;
+}
+
+/* For expanded items, ensure the right background - with greater specificity */
+.expanded-item-row > td.material-column {
+  background-color: #e2e2e2 !important;
+}
+
+/* SIMPLIFIED STYLING FOR MULTI-ITEM ROWS */
+/* For multi-item rows */
+tr.multi-item-row td {
+  background-color: #eaeaea !important;
+}
+
+/* For expanded item rows */
+tr.expanded-item-row td {
+  background-color: #e2e2e2 !important;
+}
+
+/* First column styling for all rows */
+tr td:first-child,
+tr.order-row td:first-child,
+tr.multi-item-row td:first-child,
+tr.expanded-item-row td:first-child,
+tr.selected-row td:first-child,
+tr.order-row.selected-row td:first-child,
+tr.multi-item-row.selected-row td:first-child,
+tr.expanded-item-row.selected-row td:first-child {
+  background: #015a6c !important;
+  background-color: #015a6c !important;
+  color: white !important;
+  font-family: 'PT Sans Narrow', sans-serif !important;
+  font-size: 14pt !important;
+  font-weight: 700 !important;
+}
+
+/* Make sure instrument type badge cells in expanded rows DON'T inherit header styling */
+tr.expanded-item-row td:not(:first-child) .type-color,
+tr.expanded-item-row td:not(:first-child) .type-INNATO,
+tr.expanded-item-row td:not(:first-child) .type-NATEY, 
+tr.expanded-item-row td:not(:first-child) .type-DOUBLE,
+tr.expanded-item-row td:not(:first-child) .type-ZEN,
+tr.expanded-item-row td:not(:first-child) .type-OVA,
+tr.expanded-item-row td:not(:first-child) .type-CARDS {
+  font-family: inherit !important;
+  font-size: inherit !important;
+}
+
+/* Always preserve the first column styling - highest specificity */
+.sticky-header-table tr td:first-child,
+.sticky-header-table tr.order-row td:first-child,
+.sticky-header-table tr.multi-item-row td:first-child,
+.sticky-header-table tr.expanded-item-row td:first-child,
+.sticky-header-table tr.selected-row td:first-child,
+.sticky-header-table tr.order-row.selected-row td:first-child,
+.sticky-header-table tr.multi-item-row.selected-row td:first-child,
+.sticky-header-table tr.expanded-item-row.selected-row td:first-child,
+.completed-table tr.data-row td:first-child,
+.completed-table tr.multi-item-row td:first-child,
+.completed-table tr.expanded-item-row td:first-child {
+  background-color: var(--left-column-bg) !important;
+  color: var(--left-column-text) !important;
+  font-family: 'PT Sans Narrow', sans-serif !important;
+  font-size: 14pt !important;
+  font-weight: 700 !important;
+}
+
+/* Notes column styling */
+.notes-column {
+  border-left: 1px solid #e2e8f0;
+  background-color: rgba(248, 250, 252, 0.7) !important;
+}
+
+/* Override notes column background for multi-item rows */
+.multi-item-row > td.notes-column {
+  background-color: #eaeaea !important;
+}
+
+/* For expanded items, ensure the right background */
+.expanded-item-row > td.notes-column {
+  background-color: #e2e2e2 !important;
+}
+
+/* Override notes column in selected rows to ensure it gets the right background */
+.selected-row > td.notes-column,
+tr.order-row.selected-row > td.notes-column,
+tr.multi-item-row.selected-row > td.notes-column,
+tr.expanded-item-row.selected-row > td.notes-column {
+  background-color: #dbeafe !important; /* Lichtblauw - sky-100 */
+  background: #dbeafe !important;
+  background-image: none !important;
+}
+
+/* Instrument and tuning column styling - only for non-multi-item rows */
+.order-row:not(.multi-item-row):not(.expanded-item-row) .instrument-column {
+  border-left: 1px solid #e2e8f0;
+  background-color: rgba(245, 250, 255, 0.5) !important;
+}
+
+/* Override instrument column background for multi-item rows */
+.multi-item-row > td.instrument-column {
+  background-color: #eaeaea !important;
+}
+
+/* For expanded items, ensure the right background */
+.expanded-item-row > td.instrument-column {
+  background-color: #e2e2e2 !important;
+}
+
+/* OVERRIDE: Fix for green background in expanded items - specifically for alternating colors */
+.expanded-item-row td[style*="F5F5F0"],
+.expanded-item-row td[style*="F9F0E8"] {
+  background-color: #e2e2e2 !important;
+  background: #e2e2e2 !important;
+}
+
+/* Stronger selector to override any inline styles in the expanded rows */
+.expanded-item-row > td[style]:not(:first-child) {
+  background-color: #e2e2e2 !important;
+  background: #e2e2e2 !important;
+}
+
+/* Adding CSS variables to modify inline styles */
+:root {
+  --expanded-item-bg: #e2e2e2;
+}
+
+/* Change all cells in expanded item rows */
+.expanded-item-row > td:not(:first-child) {
+  background-color: var(--expanded-item-bg) !important;
+  background: var(--expanded-item-bg) !important;
+}
+
+/* Override the specific colors used in inline styles */
+.expanded-item-row td[style*="#F5F5F0"],
+.expanded-item-row td[style*="#F9F0E8"] {
+  background-color: var(--expanded-item-bg) !important;
+  background: var(--expanded-item-bg) !important;
+}
+
+/* Most specific rule targeting #F5F5F0 and #F9F0E8 inline styles */
+.sticky-header-table tr.expanded-item-row > td[style*="#F5F5F0"]:not(:first-child),
+.sticky-header-table tr.expanded-item-row > td[style*="#F9F0E8"]:not(:first-child) {
+  background-color: #e2e2e2 !important;
+  background: #e2e2e2 !important;
+}
+
+/* Comprehensive fix for ALL cells in expanded item rows */
+/* Higher priority selector for material columns in expanded rows */
+.material-column.expanded-item-cell {
+  background: #e2e2e2 !important;
+  background-color: #e2e2e2 !important;
+  background-image: none !important;
+}
+
+tr.expanded-item-row > td {
+  background-color: #e2e2e2 !important;
+  background: #e2e2e2 !important;
+  background-image: none !important;
+}
+
+/* Preserve the header cell color in expanded rows */
+tr.expanded-item-row > td:first-child {
+  background-color: var(--left-column-bg) !important;
+  background: var(--left-column-bg) !important;
+  color: var(--left-column-text) !important;
+}
+
+@layer base {
+  :root {
+    --header-color: #015a6c;
+    --header-text-color: #ffffff;
+    --left-column-bg: #DDDDDD;
+    --left-column-text: #000000;
+    --alternate-row-light: #FFFFFF;
+    --alternate-row-dark: #EAEEF2;
+    --material-column-color: rgba(241, 245, 249, 0.5);
+    --status-column-color: rgba(245, 247, 250, 0.75);
+    --separator-color: #e2e8f0;
+    --accent-color: #015a6c;
+    --font-family: inherit;
+    --font-size: inherit;
+    --cell-padding: 0.5rem 1rem;
+  }
+  
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply font-sans antialiased bg-background text-foreground;
+    font-family: var(--font-family, inherit);
+  }
+  
+  /* Themed table styles */
+  .sticky-header-table th {
+    background-color: var(--header-color);
+    color: var(--header-text-color);
+  }
+  
+  .sticky-header-table td:first-child,
+  .sticky-header-table th:first-child {
+    background-color: var(--left-column-bg);
+    color: var(--left-column-text);
+    font-family: 'PT Sans Narrow', sans-serif !important;
+    font-size: 14pt !important;
+    font-weight: 700 !important;
+    letter-spacing: 0 !important;
+  }
+  
+  /* Alternating row colors - but exclude multi-item rows which have their own styling */
+  .order-row:not(.multi-item-row):nth-child(odd) > td {
+    background-color: var(--alternate-row-light) !important;
+  }
+  
+  .order-row:not(.multi-item-row):nth-child(even) > td {
+    background-color: var(--alternate-row-dark) !important;
+  }
+  
+  .status-column-group {
+    background-color: var(--status-column-color) !important;
+  }
+  
+  /* Override status columns for multi-item rows */
+  .multi-item-row td.status-column-group {
+    background-color: #eaeaea !important;
+  }
+  
+  /* For expanded items, ensure the right background */
+  .expanded-item-row td.status-column-group {
+    background-color: #e2e2e2 !important;
+  }
+  
+  .order-row:not(.multi-item-row):not(.expanded-item-row) .material-column {
+    background-color: var(--material-column-color) !important;
+  }
+  
+  .status-group-column {
+    border-left: 1px solid var(--separator-color);
+  }
+  
+  /* Apply font size if theme specifies it */
+  .sticky-header-table td,
+  .sticky-header-table th {
+    font-size: var(--font-size, inherit);
+    padding: var(--cell-padding, 0.5rem 1rem);
+  }
+}
+
+/* Final overrides - these should be the absolute last rules to take precedence over everything */
+.sticky-header-table tr td:first-child,
+.sticky-header-table tr.order-row td:first-child,
+.sticky-header-table tr.multi-item-row td:first-child,
+.sticky-header-table tr.expanded-item-row td:first-child,
+.sticky-header-table tr.selected-row td:first-child,
+.sticky-header-table tr.order-row.selected-row td:first-child,
+.sticky-header-table tr.multi-item-row.selected-row td:first-child,
+.sticky-header-table tr.expanded-item-row.selected-row td:first-child,
+.completed-table tr.data-row td:first-child,
+.completed-table tr.multi-item-row td:first-child,
+.completed-table tr.expanded-item-row td:first-child,
+tr.multi-item-row > td:first-child,
+tr.expanded-item-row > td:first-child {
+  background-color: var(--left-column-bg) !important;
+  background: var(--left-column-bg) !important;
+  color: var(--left-column-text) !important;
+  font-family: 'PT Sans Narrow', sans-serif !important;
+  font-size: 14pt !important;
+  font-weight: 700 !important;
+}
+
+/* Make sure the first column font styling doesn't affect other cells in expanded rows */
+tr.expanded-item-row td:not(:first-child) {
+  font-family: inherit !important;
+  font-size: inherit !important;
+  font-weight: inherit !important;
+}
+
+/* Additional override for bag/box columns in multi-item rows */
+tr.multi-item-row > td.bag-ready-cell,
+tr.multi-item-row > td.box-ready-cell {
+  background-color: #eaeaea !important;
+  background: #eaeaea !important;
+}
+
+tr.expanded-item-row > td.bag-ready-cell,
+tr.expanded-item-row > td.box-ready-cell {
+  background-color: #e2e2e2 !important;
+  background: #e2e2e2 !important;
+}

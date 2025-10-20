@@ -1,0 +1,236 @@
+{
+  "materialSettings": {
+    "innato": [
+      {
+        "tuning": "E4",
+        "bagSize": "S",
+        "boxSize": "30x30x30"
+      },
+      {
+        "tuning": "D#4",
+        "bagSize": "S",
+        "boxSize": "30x30x30"
+      },
+      {
+        "tuning": "D4",
+        "bagSize": "S",
+        "boxSize": "30x30x30"
+      },
+      {
+        "tuning": "C#4",
+        "bagSize": "M",
+        "boxSize": "30x30x30"
+      },
+      {
+        "tuning": "C4",
+        "bagSize": "M",
+        "boxSize": "30x30x30"
+      },
+      {
+        "tuning": "B3",
+        "bagSize": "L",
+        "boxSize": "30x30x30"
+      },
+      {
+        "tuning": "Bb3",
+        "bagSize": "L",
+        "boxSize": "30x30x30"
+      },
+      {
+        "tuning": "A3",
+        "bagSize": "XL",
+        "boxSize": "30x30x30"
+      },
+      {
+        "tuning": "G#3",
+        "bagSize": "XL",
+        "boxSize": "30x30x30"
+      },
+      {
+        "tuning": "G3",
+        "bagSize": "XXL",
+        "boxSize": "35x35x35"
+      },
+      {
+        "tuning": "F#3",
+        "bagSize": "XXL",
+        "boxSize": "35x35x35"
+      },
+      {
+        "tuning": "F3",
+        "bagSize": "XXL",
+        "boxSize": "35x35x35"
+      },
+      {
+        "tuning": "E3",
+        "bagSize": "XXL",
+        "boxSize": "35x35x35"
+      }
+    ],
+    "natey": [
+      {
+        "tuning": "A4",
+        "bagSize": "S",
+        "boxSize": "15x15x15"
+      },
+      {
+        "tuning": "G#4",
+        "bagSize": "S",
+        "boxSize": "15x15x15"
+      },
+      {
+        "tuning": "G4",
+        "bagSize": "S",
+        "boxSize": "15x15x15"
+      },
+      {
+        "tuning": "F#4",
+        "bagSize": "S",
+        "boxSize": "15x15x15"
+      },
+      {
+        "tuning": "F4",
+        "bagSize": "S",
+        "boxSize": "15x15x15"
+      },
+      {
+        "tuning": "E4",
+        "bagSize": "M",
+        "boxSize": "12x12x30"
+      },
+      {
+        "tuning": "D#4",
+        "bagSize": "M",
+        "boxSize": "12x12x30"
+      },
+      {
+        "tuning": "D4",
+        "bagSize": "M",
+        "boxSize": "12x12x30"
+      },
+      {
+        "tuning": "C#4",
+        "bagSize": "M",
+        "boxSize": "12x12x30"
+      },
+      {
+        "tuning": "C4",
+        "bagSize": "M",
+        "boxSize": "12x12x30"
+      },
+      {
+        "tuning": "B3",
+        "bagSize": "M",
+        "boxSize": "12x12x30"
+      },
+      {
+        "tuning": "Bb3",
+        "bagSize": "L",
+        "boxSize": "12x12x30"
+      },
+      {
+        "tuning": "A3",
+        "bagSize": "L",
+        "boxSize": "12x12x30"
+      },
+      {
+        "tuning": "G#3",
+        "bagSize": "L",
+        "boxSize": "12x12x30"
+      },
+      {
+        "tuning": "G3",
+        "bagSize": "L",
+        "boxSize": "30x30x30"
+      }
+    ],
+    "zen": [
+      {
+        "tuning": "L",
+        "bagSize": "L",
+        "boxSize": "15x15x15"
+      },
+      {
+        "tuning": "M",
+        "bagSize": "M",
+        "boxSize": "15x15x15"
+      }
+    ],
+    "double": [
+      {
+        "tuning": "C#4",
+        "bagSize": "M",
+        "boxSize": "20x20x20"
+      },
+      {
+        "tuning": "C4",
+        "bagSize": "M",
+        "boxSize": "20x20x20"
+      },
+      {
+        "tuning": "B3",
+        "bagSize": "M",
+        "boxSize": "20x20x20"
+      },
+      {
+        "tuning": "Bb3",
+        "bagSize": "L",
+        "boxSize": "20x20x20"
+      },
+      {
+        "tuning": "A3",
+        "bagSize": "L",
+        "boxSize": "20x20x20"
+      },
+      {
+        "tuning": "G#3",
+        "bagSize": "L",
+        "boxSize": "20x20x20"
+      },
+      {
+        "tuning": "G3",
+        "bagSize": "L",
+        "boxSize": "20x20x20"
+      },
+      {
+        "tuning": "default",
+        "bagSize": "M",
+        "boxSize": "20x20x20"
+      }
+    ],
+    "ova": [
+      {
+        "tuning": "64 Hz",
+        "bagSize": "OvAbag",
+        "boxSize": "40x40x60"
+      }
+    ],
+    "cards": [
+      {
+        "tuning": "Envelope",
+        "bagSize": "-",
+        "boxSize": "ENVELOPE"
+      }
+    ]
+  },
+  "shopifySettings": {
+    "apiKey": "",
+    "apiSecret": "",
+    "storeUrl": "",
+    "autoSync": true,
+    "syncInterval": "15"
+  },
+  "serialNumberSettings": {
+    "prefix": "SW",
+    "separator": "-",
+    "yearDigits": "4",
+    "includeMonth": true,
+    "resetCounter": false
+  },
+  "interfaceSettings": {
+    "defaultView": "worksheet",
+    "language": "en",
+    "dateFormat": "MM/DD/YYYY",
+    "itemsPerPage": "10"
+  }
+}

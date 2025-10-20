@@ -1,0 +1,25 @@
+// Vervanging 1 (regel ~5051):
+<MoldNamePopover 
+  customerName={order.customerName} 
+  orderNumber={order.orderNumber} 
+  serialNumber={item.serialNumber} 
+  itemPosition={`${index+1}/${allOrderItems.filter(i => i.orderId === order.id).length}`} 
+  instrumentType={instrumentType} 
+  tuningNote={tuningNote || ''} 
+  frequency={freqValue}
+  orderNotes={order.notes || ''}
+  itemSpecifications={item.specifications || {}}
+>
+
+// Vervanging 2 (regel ~5677):
+<MoldNamePopover 
+  customerName={order.customerName} 
+  orderNumber={order.orderNumber} 
+  serialNumber={item.serialNumber} 
+  itemPosition={`${index+1}/${allOrderItems.filter(i => i.orderId === order.id).length}`} 
+  instrumentType={instrumentType} 
+  tuningNote={tuningNote || ''} 
+  frequency={freqValue}
+  orderNotes={order.notes || ''}
+  itemSpecifications={item.specifications || {}}
+>

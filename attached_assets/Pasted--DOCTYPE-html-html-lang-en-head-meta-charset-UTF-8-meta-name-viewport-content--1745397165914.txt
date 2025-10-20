@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Stonewhistle Tuner</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      text-align: center;
+      padding: 2rem;
+      background: #f7f7f7;
+    }
+    select, button {
+      padding: 0.5rem;
+      margin: 0.5rem;
+      font-size: 1rem;
+    }
+    #note {
+      font-size: 3rem;
+      font-weight: bold;
+    }
+    #cents {
+      font-size: 2rem;
+      color: gray;
+    }
+    #needle {
+      width: 200px;
+      height: 100px;
+      margin: 2rem auto;
+      position: relative;
+    }
+    #needle-bar {
+      width: 2px;
+      height: 100px;
+      background: red;
+      position: absolute;
+      bottom: 0;
+      left: 50%;
+      transform-origin: bottom center;
+      transition: transform 0.1s ease-out;
+    }
+  </style>
+</head>
+<body>
+  <h1>Stonewhistle Tuner</h1>
+
+  <label for="instrument">Instrument:</label>
+  <select id="instrument">
+    <option value="innato">Innato (C minor)</option>
+    <option value="natey">Natey (C minor)</option>
+    <option value="double">Double (C minor)</option>
+  </select>
+
+  <label for="note-select">Note:</label>
+  <select id="note-select"></select>
+
+  <label for="base">A Reference:</label>
+  <select id="base">
+    <option value="440">A = 440 Hz</option>
+    <option value="432">A = 432 Hz</option>
+    <option value="425">A = 425 Hz (unfired)</option>
+    <option value="420">A = 420 Hz (unfired)</option>
+  </select>
+
+  <div id="needle">
+    <div id="needle-bar"></div>
+  </div>
+
+  <div>
+    <p id="note">--</p>
+    <p id="cents">--</p>
+  </div>
+
+  <script>
+    const NOTE_INDEX = {
+      "C": 0, "C#": 1, "Db": 1,
+      "D": 2, "D#": 3, "Eb": 3,
+      "E": 4, "F": 5, "F#": 6,
+      "G": 7, "G#": 8, "Ab": 8,
+      "A": 9, "A#": 10, "Bb": 10,
+      "B": 11
+    };
+
+    const INSTRUMENT_NOTES = {
+      innato: ["G3", "Bb3", "C4", "D4", "Eb4", "F4", "G4", "Bb4", "C5", "D5"],
+      natey: ["C4", "Eb4", "F4", "G4", "Bb4", "C5", "D5", "Eb5"],
+      double: ["C4", "Eb4", "F4", "G4", "Bb4", "C5"]
+    };
+
+    function getBaseFreq(note, baseA) {
+      let name = note.slice(0, -1);
+      let octave = parseInt(note.slice(-1));
+      let n = NOTE_INDEX[name];
+      let semitones = n - NOTE_INDEX["A"] + (octave - 4) * 12;
+      let freq = baseA * Math.pow(2, semitones / 12);
+      if (["Bb", "Eb", "G"].includes(name)) freq *= Math.pow(2, 10 / 1200);
+      return freq;
+    }
+
+    function updateDisplay(freq, targetNote) {
+      let baseA = parseInt(document.getElementById("base").value);
+      let targetFreq = getBaseFreq(targetNote, baseA);
+      let diff = 1200 * Math.log2(freq / targetFreq);
+      document.getElementById("note").textContent = targetNote;
+      document.getElementById("cents").textContent = `${diff.toFixed(1)} cents`;
+
+      const needle = document.getElementById("needle-bar");
+      const clamped = Math.max(-50, Math.min(50, diff));
+      needle.style.transform = `rotate(${clamped * 0.9}deg)`;
+    }
+
+    function autoCorrelate(buf, sampleRate) {
+      let SIZE = buf.length;
+      let rms = Math.sqrt(buf.reduce((sum, x) => sum + x * x, 0) / SIZE);
+      if (rms < 0.01) return null;
+
+      let bestOffset = -1, bestCorr = 0;
+      for (let offset = 32; offset < SIZE / 2; offset++) {
+        let corr = 0;
+        for (let i = 0; i < SIZE / 2; i++) {
+          corr += buf[i] * buf[i + offset];
+        }
+        if (corr > bestCorr) {
+          bestCorr = corr;
+          bestOffset = offset;
+        }
+      }
+
+      if (bestCorr > 0.01) {
+        return sampleRate / bestOffset;
+      }
+      return null;
+    }
+
+    async function startMic() {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      const analyser = audioContext.createAnalyser();
+      const source = audioContext.createMediaStreamSource(stream);
+      const buffer = new Float32Array(2048);
+
+      source.connect(analyser);
+      analyser.fftSize = 2048;
+
+      function listen() {
+        analyser.getFloatTimeDomainData(buffer);
+        const freq = autoCorrelate(buffer, audioContext.sampleRate);
+        if (freq) {
+          const selectedNote = document.getElementById("note-select").value;
+          updateDisplay(freq, selectedNote);
+        }
+        requestAnimationFrame(listen);
+      }
+
+      listen();
+    }
+
+    function updateNoteList() {
+      const instrument = document.getElementById("instrument").value;
+      const noteList = INSTRUMENT_NOTES[instrument];
+      const noteDropdown = document.getElementById("note-select");
+      noteDropdown.innerHTML = "";
+      noteList.forEach(n => {
+        let opt = document.createElement("option");
+        opt.value = n;
+        opt.textContent = n;
+        noteDropdown.appendChild(opt);
+      });
+    }
+
+    document.getElementById("instrument").addEventListener("change", updateNoteList);
+
+    updateNoteList();
+    startMic();
+  </script>
+</body>
+</html>

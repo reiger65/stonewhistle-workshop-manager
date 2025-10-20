@@ -1,0 +1,16 @@
+node_modules
+# Keep environment variables out of version control
+.env
+
+/generated/prisma
+backups/tar-archives/*.tar.gz
+backups/tar-archives/*.tar.gz
+node_modules/
+dist/
+*.log
+stonewhistle-workshop-manager.zip
+stonewhistle-workshop-manager.zip
+backups/tar-archives/*.tar.gz
+node_modules/
+dist/
+*.log

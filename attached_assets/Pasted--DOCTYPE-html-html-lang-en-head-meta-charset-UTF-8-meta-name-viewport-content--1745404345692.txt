@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Basic Tuner</title>
+  <style>
+    body { font-family: sans-serif; text-align: center; padding: 2rem; }
+    #note { font-size: 3rem; font-weight: bold; }
+    #cents { font-size: 2rem; color: gray; }
+  </style>
+</head>
+<body>
+  <h1>Basic Tuner</h1>
+  <p id="note">--</p>
+  <p id="cents">--</p>
+
+  <script>
+    const NOTE_INDEX = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+
+    function getNote(freq) {
+      const A4 = 440;
+      const semitones = 12 * Math.log2(freq / A4);
+      const noteIndex = Math.round(semitones) + 57; // A4 is MIDI note 69
+      const name = NOTE_INDEX[noteIndex % 12];
+      const octave = Math.floor(noteIndex / 12) - 1;
+      const noteFreq = A4 * Math.pow(2, (noteIndex - 69) / 12);
+      const cents = 1200 * Math.log2(freq / noteFreq);
+      return { name, octave, cents };
+    }
+
+    function autoCorrelate(buf, sampleRate) {
+      let SIZE = buf.length;
+      let rms = Math.sqrt(buf.reduce((sum, x) => sum + x * x, 0) / SIZE);
+      if (rms < 0.01) return null;
+
+      let bestOffset = -1, bestCorr = 0;
+      for (let offset = 32; offset < SIZE / 2; offset++) {
+        let corr = 0;
+        for (let i = 0; i < SIZE / 2; i++) {
+          corr += buf[i] * buf[i + offset];
+        }
+        if (corr > bestCorr) {
+          bestCorr = corr;
+          bestOffset = offset;
+        }
+      }
+      return bestCorr > 0.01 ? sampleRate / bestOffset : null;
+    }
+
+    async function startTuner() {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const audioCtx = new AudioContext();
+      const analyser = audioCtx.createAnalyser();
+      const source = audioCtx.createMediaStreamSource(stream);
+      const buffer = new Float32Array(2048);
+
+      source.connect(analyser);
+      analyser.fftSize = 2048;
+
+      function update() {
+        analyser.getFloatTimeDomainData(buffer);
+        const freq = autoCorrelate(buffer, audioCtx.sampleRate);
+        if (freq) {
+          const { name, octave, cents } = getNote(freq);
+          document.getElementById("note").textContent = `${name}${octave}`;
+          document.getElementById("cents").textContent = `${cents.toFixed(1)} cents`;
+        }
+        requestAnimationFrame(update);
+      }
+      update();
+    }
+
+    startTuner();
+  </script>
+</body>
+</html>

@@ -1,0 +1,35 @@
+Now I understand why we're getting different results! Thank you for sharing these screenshots - they're extremely helpful.
+
+Looking at your screenshots, I can see that the "Not Started" filter in the UI is showing:
+
+Number of instruments that need to be built: 27 (shown in the green counter at the top)
+Orders containing these instruments: ranging from #1537 through #1598
+Waiting days: The numbers in yellow/green (98, 74, 57, etc.) showing how many days each order has been waiting
+The difference between what I initially mentioned (15 unfulfilled orders in Shopify) and what you're seeing (27 items across multiple orders) is explained by how the "Not Started" filter works:
+
+The filter is checking for instruments that have no checkboxes checked, not just unfulfilled Shopify orders. This is defined in the code as:
+
+// Item is "not started" if it has no checkboxes with true values
+const hasNoCheckboxesChecked = Object.values(checkboxes).every(value => value !== true);
+return hasNoCheckboxesChecked;
+The filter is identifying all instruments where none of the production checkboxes have been checked yet (meaning work hasn't started on them). This includes:
+
+The newest Shopify orders (#1590-1598) that have recently come in
+Some older orders that haven't had any production steps marked yet (like #1537, #1546)
+Specific items within larger orders (like the Alan 12 order #1594 with multiple instruments)
+According to your UI, there are 27 instruments across these orders that have no production steps marked yet - these are the ones you need to build.
+
+The UI is properly showing your "to-build" list with the correct items, sorted by order number (oldest first), with waiting times in days, exactly as intended.
+
+Yes, exactly! There are 27 instruments waiting to be built, not just 15.
+
+The difference is:
+
+15 is just the count of unfulfilled Shopify orders
+27 is the actual count of individual instruments that have no checkboxes checked yet
+This makes sense because:
+
+Some orders contain multiple instruments (like the Alan 12 order #1594 with 12 different instruments)
+The "Not Started" filter is checking each individual instrument's checkbox status, not just order fulfillment status
+The UI counter showing "27" is the correct number of instruments you need to build. Your filter is working exactly as intended, showing all instruments where no production steps have been started yet.
+

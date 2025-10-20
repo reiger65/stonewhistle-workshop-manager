@@ -1,0 +1,36 @@
+ORDER ITEM [1543-1] heeft BUILD checkbox aangevinkt op 2025-05-01T14:39:15.728Z
+ORDER ITEM [1543-1] heeft deze checkboxes: dry, ordered, building, validated
+ORDER ITEM [1544-1] heeft BUILD checkbox aangevinkt op 2025-05-01T14:39:32.786Z
+ORDER ITEM [1544-1] heeft deze checkboxes: dry, ordered, building, validated
+ORDER ITEM [1545-1] heeft BUILD checkbox aangevinkt op 2025-05-01T14:39:37.235Z
+ORDER ITEM [1545-1] heeft deze checkboxes: dry, ordered, building, validated
+ORDER ITEM [1547-1] heeft BUILD checkbox aangevinkt op 2025-05-01T14:39:44.096Z
+ORDER ITEM [1547-1] heeft deze checkboxes: dry, ordered, building, validated
+ORDER ITEM [1548-1] heeft deze checkboxes: ordered, validated
+ORDER ITEM [1550-1] heeft BUILD checkbox aangevinkt op 2025-05-01T14:42:23.822Z
+ORDER ITEM [1550-1] heeft deze checkboxes: dry, ordered, building, validated
+ORDER ITEM [1551-1] heeft BUILD checkbox aangevinkt op 2025-05-01T14:42:29.943Z
+ORDER ITEM [1551-1] heeft deze checkboxes: dry, ordered, building, validated
+ORDER ITEM [1552-1] heeft BUILD checkbox aangevinkt op 2025-05-01T14:42:43.372Z
+ORDER ITEM [1552-1] heeft deze checkboxes: dry, ordered, building, validated
+ORDER ITEM [1553-1] heeft BUILD checkbox aangevinkt op 2025-05-01T14:43:01.233Z
+ORDER ITEM [1553-1] heeft deze checkboxes: dry, ordered, building, validated
+ORDER ITEM [1554-1] heeft BUILD checkbox aangevinkt op 2025-05-01T14:43:02.599Z
+ORDER ITEM [1554-1] heeft deze checkboxes: dry, ordered, building, validated
+ORDER ITEM [1554-2] heeft BUILD checkbox aangevinkt op 2025-05-01T14:43:04.675Z
+ORDER ITEM [1554-2] heeft deze checkboxes: dry, ordered, building, validated
+ORDER ITEM [1554-3] heeft BUILD checkbox aangevinkt op 2025-05-01T14:43:14.322Z
+ORDER ITEM [1554-3] heeft deze checkboxes: dry, ordered, building, validated
+ORDER ITEM [1561-1] heeft BUILD checkbox aangevinkt op 2025-05-01T14:43:16.051Z
+ORDER ITEM [1561-1] heeft deze checkboxes: ordered, building, validated
+ORDER ITEM [1564-1] heeft deze checkboxes: ordered, validated
+ORDER ITEM [1565-1] heeft deze checkboxes: ordered, validated
+ORDER ITEM [1566-1] heeft deze checkboxes: ordered, validated
+ORDER ITEM [1567-1] heeft BUILD checkbox aangevinkt op 2025-05-02T06:19:37.530Z
+ORDER ITEM [1567-1] heeft deze checkboxes: dry, ordered, testing, building, validated
+ORDER ITEM [1568-1] heeft deze checkboxes: ordered, validated
+ORDER ITEM [1571-1] heeft deze checkboxes: ordered, validated
+ORDER ITEM [1572-1] heeft deze checkboxes: ordered
+ORDER ITEM [1575-1] heeft deze checkboxes: ordered
+Totaal aantal items: 119
+12:22:26 PM [express] GET /api/order-items 200 in 19207ms :: [{"id":442,"orderId":252,"serialNumber":…

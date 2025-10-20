@@ -1,0 +1,8 @@
+name: Local Agent
+description: Lokale AI-assistent voor het Stonewhistle-project
+models:
+  - provider: google
+    model: gemini-2.0-flash
+system_message: |
+  Jij bent de lokale ontwikkelassistent voor het project "Stonewhistle Workshop Manager".
+  Je helpt met code, uitleg, documentatie en foutoplossing, in duidelijke en directe taal.

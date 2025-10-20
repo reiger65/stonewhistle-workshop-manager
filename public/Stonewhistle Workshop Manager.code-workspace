@@ -1,0 +1,20 @@
+{
+	"folders": [
+		{
+			"path": "../../../Documents/Stonewhistle Workshop Manager"
+		},
+		{
+			"path": "../../ui_exact_visuals"
+		},
+		{
+			"path": ".."
+		},
+		{
+			"path": "../../migration_audit"
+		},
+		{
+			"path": "../../database"
+		}
+	],
+	"settings": {}
+}

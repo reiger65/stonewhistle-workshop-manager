@@ -1,0 +1,4878 @@
+import { useState, useEffect, useRef } from 'react';
+import { MainLayout } from '@/components/layout/main-layout';
+import { FrequencyBadge, TuningBadge, CombinedInstrumentTuningBadge } from '../components/badges/tuning-badges';
+import { cn } from '@/lib/utils';
+
+// Custom CSS styles
+const styles = {
+  expandedItemContainer: "flex flex-col items-start justify-start w-full h-full",
+  expandedRow: "align-top",
+  expandedCell: "align-top pt-1",
+};
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { apiRequest, queryClient } from '@/lib/queryClient';
+import { Order, OrderItem, MaterialInventory } from '@shared/schema';
+import { formatDate } from '@/lib/utils';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { 
+  Dialog, 
+  DialogContent, 
+  DialogDescription, 
+  DialogHeader, 
+  DialogTitle,
+  DialogFooter
+} from '@/components/ui/dialog';
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger
+} from '@/components/ui/popover';
+import { Label } from '@/components/ui/label';
+import { Search, RefreshCw, Phone, Mail, User, Package, PackageOpen, ExternalLink, ArchiveX, RotateCcw, Copy, ChevronDown, ChevronUp, ChevronsUpDown, Check, Calendar, Trash, Plus, Pin, Focus, Filter, X as XIcon, FileText, Clock, MapPin, MessageSquare, ClipboardEdit, Printer, CheckSquare } from 'lucide-react';
+import { useToast } from '@/hooks/use-toast';
+import { syncShopifyOrders } from '@/lib/shopify';
+import { useOfflineMode } from '@/hooks/use-offline-mode';
+import { addDays, isBefore, isAfter, parseISO, differenceInDays, format, formatDistance } from 'date-fns';
+import { 
+  Table, 
+  TableBody, 
+  TableCell, 
+  TableHead, 
+  TableHeader, 
+  TableRow 
+} from '@/components/ui/table';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Switch } from '@/components/ui/switch';
+import { 
+  getMaterialSettings, 
+  getBagSizeFromMaterialSettings, 
+  getBoxSizeFromMaterialSettings,
+  getInstrumentTypeFromOrder,
+  getTuningFromOrder,
+  cleanTuningNote
+} from '@/lib/material-utils';
+import { MoldNamePopover } from '@/components/molds/mold-name-popover-new';
+
+/**
+ * A reusable component to display instrument type badges with consistent styling
+ */
+interface InstrumentTypeBadgeProps {
+  type?: string;
+  isInHeader?: boolean;
+}
+
+const InstrumentTypeBadge: React.FC<InstrumentTypeBadgeProps> = ({ type, isInHeader = false }) => {
+  // Base style for all badges
+  const baseStyle = {
+    fontWeight: 700, // Always bold
+    padding: '0.25rem 0.5rem',
+    borderRadius: '0.25rem',
+    textAlign: 'center' as const,
+    minWidth: '80px',
+    display: 'inline-flex',
+    justifyContent: 'center',
+    alignItems: 'center',
+    color: 'white',
+    fontFamily: '"PT Sans Narrow", sans-serif', // Always use PT Sans Narrow
+    fontSize: '14pt' // Same font size everywhere
+  };
+  
+  if (!type) {
+    return <span style={{...baseStyle, backgroundColor: '#4B5563'}}>—</span>;
+  }
+  
+  // Color mapping - using direct hex colors instead of theme variables
+  let bgColor = '#4B5563'; // Default gray
+  
+  switch(type.toUpperCase()) {
+    case 'INNATO':
+    case 'INNATOM':
+      bgColor = '#4f46e5'; // indigo-600
+      break;
+    case 'NATEY':
+    case 'NATEYM':
+      bgColor = '#f59e0b'; // amber-500
+      break;
+    case 'DOUBLE':
+    case 'DOUBLEM':
+      bgColor = '#8b5cf6'; // purple-600
+      break;
+    case 'ZEN':
+      bgColor = '#0d9488'; // teal-600
+      break;
+    case 'OVA': // Only need this once since we're already uppercase
+      bgColor = '#ec4899'; // pink-500
+      break;
+    case 'CARDS':
+      bgColor = '#f43f5e'; // rose-500
+      break;
+  }
+  
+  // Add !important to override any potential CSS conflicts
+  const style = {
+    ...baseStyle, 
+    backgroundColor: bgColor,
+    background: bgColor, // Add background property to ensure it works in all browsers
+  };
+  
+  // Add a HTML attribute to help with CSS targeting
+  return (
+    <span 
+      style={style} 
+      data-instrument-type={type.toUpperCase()}
+      className={`instrument-type-${type.toUpperCase()}`}
+    >
+      {type}
+    </span>
+  );
+};
+
+export default function Worksheet() {
+  const [filter, setFilter] = useState('');
+  const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
+  const [showAllOrders, setShowAllOrders] = useState(false); // Toggle to show all orders including shipped/cancelled
+  const [orderDetailsOpen, setOrderDetailsOpen] = useState(false);
+  const [workshopNotes, setWorkshopNotes] = useState('');
+  const [archiveOrder, setArchiveOrder] = useState(false);
+  const [isReseller, setIsReseller] = useState(false);
+  const [resellerNickname, setResellerNickname] = useState('');
+  const [minOrderNumber, setMinOrderNumber] = useState('0'); // Start from the earliest order
+  const [maxOrderNumber, setMaxOrderNumber] = useState('');
+  const [showOrderRangeSettings, setShowOrderRangeSettings] = useState(false);
+  // Always show all items in flat rows - no collapsing needed
+  // In flat row system, we always keep orders expanded (never collapsed)
+  const [collapsedOrders, setCollapsedOrders] = useState<Record<number, boolean>>({}); // Empty object means no orders are collapsed
+  // Order isolation state - for focusing on specific orders
+  const [isolatedOrderIds, setIsolatedOrderIds] = useState<number[]>(() => {
+    const savedIsolation = localStorage.getItem('isolatedOrderIds');
+    return savedIsolation ? JSON.parse(savedIsolation) : [];
+  });
+  // Joint box selection states
+  const [jointBoxDialogOpen, setJointBoxDialogOpen] = useState(false);
+  const [selectedItems, setSelectedItems] = useState<OrderItem[]>([]);
+  const [selectedBoxItems, setSelectedBoxItems] = useState<number[]>([]);
+  const [selectedCustomBox, setSelectedCustomBox] = useState('');
+  const [customBoxSize, setCustomBoxSize] = useState('');
+  const boxSizes = ['20x20x20', '30x30x30', '35x35x35', '40x40x40', '50x50x50', '15x15x15', '12x12x30', '40x40x60', 'ENVELOPE'];
+  // We're always showing order numbers now (removed toggle)
+  const showOrderNumbers = true;
+  
+  // Order isolation feature - for focusing on specific orders
+  // Helper variable to check if any orders are isolated
+  const hasIsolatedOrders = isolatedOrderIds.length > 0;
+  
+  // Save isolation state to localStorage
+  useEffect(() => {
+    localStorage.setItem('isolatedOrderIds', JSON.stringify(isolatedOrderIds));
+  }, [isolatedOrderIds]);
+  
+  // State for toggling sort order (true = newest first, false = oldest first)
+  // Default to oldest first (false) as requested
+  const [newestFirst, setNewestFirst] = useState(false);
+  
+  // State for the mold info dialog
+  const [moldInfoDialogOpen, setMoldInfoDialogOpen] = useState(false);
+  const [selectedInstrumentType, setSelectedInstrumentType] = useState('');
+  const [selectedTuningNote, setSelectedTuningNote] = useState('');
+  
+  // State for add order dialog
+  const [addOrderDialogOpen, setAddOrderDialogOpen] = useState(false);
+  
+  // State for test order creation dialog
+  const [testOrderDialogOpen, setTestOrderDialogOpen] = useState(false);
+  const [testOrderType, setTestOrderType] = useState('DOUBLE');
+  const [testOrderTuning, setTestOrderTuning] = useState('C#m4');
+  const [testOrderFrequency, setTestOrderFrequency] = useState('440 Hz');
+  
+  // Time window options for waiting time calculations
+  type TimeWindow = {
+    value: number;  // days
+    label: string;
+  };
+  
+  const timeWindowOptions: TimeWindow[] = [
+    { value: 30, label: '30 days' },
+    { value: 90, label: '90 days' },
+    { value: 180, label: 'Half year' },
+    { value: 365, label: '1 year' },
+    { value: 0, label: 'All time' } // 0 means no limit
+  ];
+  
+  // State for selected time window
+  const [selectedTimeWindow, setSelectedTimeWindow] = useState<number>(() => {
+    const savedWindow = localStorage.getItem('selectedTimeWindow');
+    return savedWindow ? parseInt(savedWindow) : 365; // Default to 1 year
+  });
+  
+  // Save selected time window to localStorage
+  useEffect(() => {
+    localStorage.setItem('selectedTimeWindow', selectedTimeWindow.toString());
+  }, [selectedTimeWindow]);
+  
+  // Non-working periods tracking
+  const [nonWorkingPeriods, setNonWorkingPeriods] = useState<{start: string, end: string, reason: string}[]>(() => {
+    const savedPeriods = localStorage.getItem('nonWorkingPeriods');
+    return savedPeriods ? JSON.parse(savedPeriods) : [];
+  });
+  
+  // State for adding new non-working periods
+  const [showNonWorkingForm, setShowNonWorkingForm] = useState(false);
+  const [newNonWorkingPeriod, setNewNonWorkingPeriod] = useState({
+    start: format(new Date(), 'yyyy-MM-dd'),
+    end: format(addDays(new Date(), 7), 'yyyy-MM-dd'),
+    reason: ''
+  });
+  
+  // Save non-working periods to localStorage
+  useEffect(() => {
+    localStorage.setItem('nonWorkingPeriods', JSON.stringify(nonWorkingPeriods));
+  }, [nonWorkingPeriods]);
+  
+  // Store material settings from API
+  const [materialSettings, setMaterialSettings] = useState<any>(null);
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  // Use offline mode hook for online/offline status and syncing
+  const { isOnline, updateOrder: updateOfflineOrder, updateOrderItem: updateOfflineOrderItem } = useOfflineMode();
+  
+  // Fetch all orders
+  const { data: allOrders = [], isLoading: isLoadingOrders } = useQuery<Order[]>({
+    queryKey: ['/api/orders'],
+  });
+  
+  // Fetch all order items for each order
+  const { data: allOrderItems = [], isLoading: isLoadingItems } = useQuery<OrderItem[]>({
+    queryKey: ['/api/order-items'],
+  });
+  
+  // Calculate unfulfilled orders count (all orders that are not shipping, delivered, or cancelled)
+  // We'll consider an order unfulfilled if it's currently in progress in our workshop
+  const unfulfilledOrders = (allOrders as Order[]).filter(order => 
+    order.status !== 'shipping' && 
+    order.status !== 'delivered' && 
+    order.status !== 'cancelled' &&
+    !order.archived
+  );
+  const unfulfilledOrdersCount = unfulfilledOrders.length;
+  
+  // Calculate total items to build (items from unfulfilled orders)
+  const itemsCount = (allOrderItems as OrderItem[]).filter(item => {
+    const order = (allOrders as Order[]).find(o => o.id === item.orderId);
+    return order && 
+      order.status !== 'shipping' && 
+      order.status !== 'delivered' && 
+      order.status !== 'cancelled' &&
+      !order.archived;
+  }).length;
+  
+  // Log all order numbers of unfulfilled orders
+  console.log('Unfulfilled orders:', unfulfilledOrders.map(o => o.orderNumber).join(', '));
+  
+  // Fetch material settings
+  const { data: settingsData = { materialSettings: {} } } = useQuery({
+    queryKey: ['/api/settings'],
+  });
+  
+  // Fetch box materials for inventory
+  const { data: boxMaterials = [] } = useQuery<MaterialInventory[]>({
+    queryKey: ['/api/materials/type/box'],
+  });
+  
+  // Update materialSettings state when settings data changes
+  useEffect(() => {
+    if (settingsData && settingsData.materialSettings) {
+      setMaterialSettings(settingsData.materialSettings);
+      console.log('Material settings loaded:', settingsData.materialSettings);
+      
+      // Force refresh to ensure all components use the latest materialSettings
+      const timer = setTimeout(() => {
+        console.log('Refreshing order data to apply new material settings');
+        queryClient.invalidateQueries({ queryKey: ['/api/orders'] });
+        queryClient.invalidateQueries({ queryKey: ['/api/order-items'] });
+      }, 500);
+      return () => clearTimeout(timer);
+    }
+  }, [settingsData, queryClient]);
+  
+  // Update order status mutation with optimistic updates
+  const updateOrderStatusMutation = useMutation({
+    mutationFn: async ({orderId, status, checked}: {orderId: number, status: string, checked: boolean}) => {
+      const res = await apiRequest(
+        'PATCH',
+        `/api/orders/${orderId}/status-flag`,
+        { status, checked }
+      );
+      return res.json();
+    },
+    onMutate: async ({orderId, status, checked}) => {
+      // Cancel any outgoing refetches so they don't overwrite our optimistic update
+      await queryClient.cancelQueries({ queryKey: ['/api/orders'] });
+      
+      // Snapshot the previous value
+      const previousOrders = queryClient.getQueryData(['/api/orders']) as Order[];
+      
+      // Optimistically update the order
+      queryClient.setQueryData(['/api/orders'], (old: Order[] | undefined) => {
+        if (!old) return old;
+        return old.map(order => {
+          if (order.id === orderId) {
+            const updatedStatusChangeDates = { ...(order.statusChangeDates || {}) };
+            if (checked) {
+              updatedStatusChangeDates[status] = new Date().toISOString();
+            } else {
+              delete updatedStatusChangeDates[status];
+            }
+            return {
+              ...order,
+              statusChangeDates: updatedStatusChangeDates
+            };
+          }
+          return order;
+        });
+      });
+      
+      // Return a context object with the snapshot
+      return { previousOrders };
+    },
+    onError: (_, __, context) => {
+      // If the mutation fails, use the context to roll back
+      if (context?.previousOrders) {
+        queryClient.setQueryData(['/api/orders'], context.previousOrders);
+      }
+      toast({
+        variant: "destructive",
+        title: "Update Failed",
+        description: "Could not update order status",
+      });
+    },
+    onSettled: () => {
+      // Always refetch after error or success to make sure the server state is correct
+      // But we do this with a small delay to ensure the optimistic update feels smooth
+      setTimeout(() => {
+        queryClient.invalidateQueries({ queryKey: ['/api/orders'] });
+      }, 500);
+    }
+  });
+  
+  // Update order item status mutation with optimistic updates
+  const updateOrderItemStatusMutation = useMutation({
+    mutationFn: async ({itemId, status, checked}: {itemId: number, status: string, checked: boolean}) => {
+      const res = await apiRequest(
+        'PATCH',
+        `/api/order-items/${itemId}/status`,
+        { status, checked }
+      );
+      return res.json();
+    },
+    onMutate: async ({itemId, status, checked}) => {
+      // Cancel any outgoing refetches so they don't overwrite our optimistic update
+      await queryClient.cancelQueries({ queryKey: ['/api/order-items'] });
+      
+      // Snapshot the previous value
+      const previousItems = queryClient.getQueryData(['/api/order-items']) as OrderItem[];
+      
+      // Optimistically update the item
+      queryClient.setQueryData(['/api/order-items'], (old: OrderItem[] | undefined) => {
+        if (!old) return old;
+        return old.map(item => {
+          if (item.id === itemId) {
+            const updatedStatusChangeDates = { ...(item.statusChangeDates || {}) };
+            if (checked) {
+              updatedStatusChangeDates[status] = new Date().toISOString();
+            } else {
+              delete updatedStatusChangeDates[status];
+            }
+            return {
+              ...item,
+              statusChangeDates: updatedStatusChangeDates
+            };
+          }
+          return item;
+        });
+      });
+      
+      // Return a context object with the snapshot
+      return { previousItems };
+    },
+    onError: (_, __, context) => {
+      // If the mutation fails, use the context to roll back
+      if (context?.previousItems) {
+        queryClient.setQueryData(['/api/order-items'], context.previousItems);
+      }
+      toast({
+        variant: "destructive",
+        title: "Update Failed",
+        description: "Could not update item status",
+      });
+    },
+    onSettled: () => {
+      // Always refetch after error or success to make sure the server state is correct
+      // But we do this with a small delay to ensure the optimistic update feels smooth
+      setTimeout(() => {
+        queryClient.invalidateQueries({ queryKey: ['/api/order-items'] });
+      }, 500);
+    }
+  });
+  
+  // Update order notes mutation
+  const updateOrderNotesMutation = useMutation({
+    mutationFn: async ({orderId, notes}: {orderId: number, notes: string}) => {
+      const res = await apiRequest(
+        'PATCH',
+        `/api/orders/${orderId}`,
+        { notes }
+      );
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/orders'] });
+      toast({
+        title: "Notes Updated",
+        description: "Workshop notes have been saved",
+      });
+    },
+    onError: () => {
+      toast({
+        variant: "destructive",
+        title: "Update Failed",
+        description: "Could not update workshop notes",
+      });
+    }
+  });
+  
+  // Archive order mutation (updates the archived field)
+  const archiveOrderMutation = useMutation({
+    mutationFn: async ({orderId, archived}: {orderId: number, archived: boolean}) => {
+      const res = await apiRequest(
+        'PATCH',
+        `/api/orders/${orderId}`,
+        { archived } 
+      );
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['/api/orders'] });
+      toast({
+        title: data.archived ? "Order Archived" : "Order Restored",
+        description: data.archived 
+          ? "Order has been hidden from the main list" 
+          : "Order has been restored to the main list",
+      });
+    },
+    onError: () => {
+      toast({
+        variant: "destructive",
+        title: "Action Failed",
+        description: "Could not archive/restore the order",
+      });
+    }
+  });
+  
+  // Update custom box size for multiple items and reduce inventory
+  const updateCustomBoxMutation = useMutation({
+    mutationFn: async ({ itemIds, customBoxSize }: { itemIds: number[], customBoxSize: string }) => {
+      // First, update the inventory to reduce the box count
+      // Find the box in the inventory
+      const boxMaterial = boxMaterials.find(
+        (material) => material.materialType === 'box' && material.size === customBoxSize
+      );
+      
+      // If we found the box in inventory and there's enough quantity, update it
+      if (boxMaterial && boxMaterial.id) {
+        // Reduce inventory by 1 (joint box is shared among all items)
+        await apiRequest(
+          'PATCH',
+          `/api/materials/${boxMaterial.id}`,
+          { 
+            quantity: Math.max(0, boxMaterial.quantity - 1)
+          }
+        );
+      }
+      
+      // Create a custom property for the box size in specifications
+      const updates = itemIds.map(id => {
+        return apiRequest(
+          'PATCH',
+          `/api/order-items/${id}`,
+          { 
+            specifications: { 
+              customBoxSize: customBoxSize,
+              useJointBox: true 
+            } 
+          }
+        ).then(res => res.json());
+      });
+      
+      return Promise.all(updates);
+    },
+    onSuccess: () => {
+      // Invalidate both order items and materials queries
+      queryClient.invalidateQueries({ queryKey: ['/api/order-items'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/materials'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/materials/type/box'] });
+      
+      toast({
+        title: "Box Size Updated",
+        description: `Updated ${selectedItems.length} items to use a joint custom box`,
+      });
+      // Reset selection
+      setSelectedItems([]);
+      setSelectedCustomBox('');
+    },
+    onError: () => {
+      toast({
+        variant: "destructive",
+        title: "Update Failed",
+        description: "Could not update custom box size",
+      });
+    }
+  });
+
+  // Filter orders to show only valid unfulfilled orders in the specified order number range
+  const validOrders = (allOrders as Order[]).filter(order => {
+    // Convert order number to integer for range checking
+    const orderNum = parseInt(order.orderNumber?.replace(/\D/g, '') || '0');
+    const minOrder = parseInt(minOrderNumber || '0');
+    const maxOrder = maxOrderNumber ? parseInt(maxOrderNumber) : Number.MAX_SAFE_INTEGER;
+    
+    // Check if in range
+    const inRange = orderNum >= minOrder && orderNum <= maxOrder;
+    
+    // Skip archived orders
+    const notArchived = !order.archived;
+    
+    // Skip cancelled and shipping/delivered orders (these are on the completed tab)
+    const notCompleted = order.status !== 'cancelled' && order.status !== 'shipping' && order.status !== 'delivered';
+    
+    return inRange && notArchived && notCompleted;
+  });
+  
+  // Log order counts by status for debugging
+  const statusCounts = validOrders.reduce((acc, order) => {
+    acc[order.status] = (acc[order.status] || 0) + 1;
+    return acc;
+  }, {} as Record<string, number>);
+  
+  console.log('Orders by status:', statusCounts);
+  console.log(`Total orders in range ${minOrderNumber || 'min'}-${maxOrderNumber || 'max'}: ${validOrders.length}`);
+  
+  // Filter based on search term, isolation status, and sort
+  const filteredOrders = validOrders
+    .filter((order) => {
+      // First apply isolation filter
+      if (hasIsolatedOrders && !isolatedOrderIds.includes(order.id)) {
+        return false;
+      }
+      
+      // Then filter by search term
+      const searchTerm = filter.toLowerCase();
+      return searchTerm === '' || // If no search term, include all
+        order.orderNumber?.toLowerCase().includes(searchTerm) ||
+        order.customerName?.toLowerCase().includes(searchTerm) ||
+        (getTypeFromSpecifications(order)?.toLowerCase().includes(searchTerm) || false);
+    })
+    .sort((a, b) => {
+      // Sort by order number based on newestFirst flag
+      const orderA = parseInt(a.orderNumber?.replace(/\D/g, '') || '0');
+      const orderB = parseInt(b.orderNumber?.replace(/\D/g, '') || '0');
+      return newestFirst ? orderB - orderA : orderA - orderB;
+    });
+  
+  // Group order items by order ID
+  const itemsByOrder = (allOrderItems as OrderItem[]).reduce((acc, item) => {
+    acc[item.orderId] = acc[item.orderId] || [];
+    acc[item.orderId].push(item);
+    return acc;
+  }, {} as Record<number, OrderItem[]>);
+  
+  // Get only items from orders with multiple items
+  function getMultiItemOrderItems(): OrderItem[] {
+    return (allOrderItems as OrderItem[]).filter(item => {
+      const orderItems = itemsByOrder[item.orderId] || [];
+      return orderItems.length > 1;
+    });
+  }
+  
+  // Initialize all orders as expanded for flat row system (all items always visible)
+  useEffect(() => {
+    const orders = allOrders as Order[];
+    
+    if (orders.length > 0) {
+      // Using a flat row system, so we ensure all orders are expanded (not collapsed)
+      const initialCollapsedState: Record<number, boolean> = {};
+      
+      // Set all orders to be expanded by default (collapsed = false)
+      orders.forEach(order => {
+        initialCollapsedState[order.id] = false;
+      });
+      
+      console.log('Setting all orders to expanded state for flat row system');
+      setCollapsedOrders(initialCollapsedState);
+    }
+  }, [allOrders]);
+  
+  // Helper function to extract type from specifications
+  function getTypeFromSpecifications(order: Order | OrderItem): string | undefined {
+    // First check if there's an itemType field
+    if ('itemType' in order && order.itemType) {
+      // Extract just the instrument type without tuning info
+      const itemType = order.itemType.toString();
+      
+      // Handle OVA models - return just "OvA"
+      if (itemType.includes('OVA')) {
+        return 'OvA';
+      }
+      
+      // For ZEN flutes, return just 'ZEN' without "flute" and size
+      if (itemType.toLowerCase().includes('zen')) {
+        return 'ZEN';
+      }
+      
+      // For NATEY flutes, return just 'NATEY' without tuning
+      if (itemType.toLowerCase().includes('natey')) {
+        return 'NATEY';
+      }
+      
+      // For INNATO flutes, return just 'INNATO' without tuning
+      if (itemType.toLowerCase().includes('innato')) {
+        // Return INNATO for all flutes with "innato" in the title
+        return 'INNATO';
+      }
+      
+      // Special case for items titled "CARDS" or containing "cards"
+      if (itemType.toLowerCase().includes('cards')) {
+        return 'CARDS';
+      }
+      
+      // For DOUBLE flutes, return just 'DOUBLE' without tuning
+      if (itemType.toLowerCase().includes('double')) {
+        return 'DOUBLE';
+      }
+      
+      // For any other instrument types, just return the base type
+      return itemType.split(' ')[0]; // Get just the first word
+    }
+    
+    // Then check specifications
+    const specs = ('specifications' in order) ? order.specifications : undefined;
+    if (specs && typeof specs === 'object') {
+      const specsRecord = specs as Record<string, string>;
+      // First check for explicit type or model field
+      const typeValue = specsRecord?.['type'];
+      const modelValue = specsRecord?.['model'];
+      const nameValue = specsRecord?.['name'];
+      const titleValue = specsRecord?.['title'];
+      const productValue = specsRecord?.['product'];
+      
+      // Special case for OVA models
+      if ((typeValue && typeValue.includes('OVA')) || 
+          (modelValue && modelValue.includes('OVA')) ||
+          (nameValue && nameValue.includes('OVA')) ||
+          (titleValue && titleValue.includes('OVA')) ||
+          (productValue && productValue.includes('OVA'))) {
+        return 'OvA';
+      }
+      
+      // Special case for known CARDS orders (1583, 1535, etc.)
+      const orderNumber = ('orderNumber' in order) ? order.orderNumber : 
+                         ('orderId' in order && allOrders) ? 
+                         allOrders.find(o => o.id === order.orderId)?.orderNumber : null;
+                       
+      if (orderNumber && (orderNumber.includes('1583') || orderNumber.includes('1535'))) {
+        console.log(`Order ${orderNumber} identified as CARDS (from specifications)`);
+        return 'CARDS';
+      }
+      
+      // Additional check for INNATO Exploration Cards
+      // These can be identified by:
+      // 1. Having "INNATO" or "Innato" in the name/title
+      // 2. Also containing "Exploration" or "card" in the name
+      // 3. Not having any tuning or color information
+      if ((typeValue && typeValue.toLowerCase().includes('innato')) || 
+          (modelValue && modelValue.toLowerCase().includes('innato'))) {
+          
+        // Check if it contains "exploration" in the name
+        const containsExploration = 
+          (typeValue && typeValue.toLowerCase().includes('exploration')) ||
+          (modelValue && modelValue.toLowerCase().includes('exploration')) ||
+          (nameValue && nameValue.toLowerCase().includes('exploration')) ||
+          (titleValue && titleValue.toLowerCase().includes('exploration'));
+          
+        // Check for "exploration" in name without using potentially recursive calls
+        if (containsExploration) {
+          console.log('INNATO item with "exploration" in the name - identified as CARDS');
+          return 'CARDS';
+        }
+        
+        // Check specs directly to avoid circular dependencies that cause stack overflow
+        if (specsRecord && 
+            (!specsRecord['noteTuning'] && !specsRecord['note'] && !specsRecord['tuningNote']) || 
+            !specsRecord['color']) {
+          console.log('INNATO item without tuning or color in specs - identified as CARDS');
+          return 'CARDS';
+        }
+      }
+      
+      // Check for CARDS orders (non-instrument INNATO products)
+      if (nameValue && nameValue.toLowerCase().includes('card')) {
+        return 'CARDS';
+      }
+      
+      if (titleValue && titleValue.toLowerCase().includes('card')) {
+        return 'CARDS';
+      }
+      
+      if (productValue && productValue.toLowerCase().includes('card')) {
+        return 'CARDS';
+      }
+      
+      // If it's an INNATO order but has no tuning note, it's likely a CARDS order
+      if ((typeValue && typeValue.toLowerCase().includes('innato')) || 
+          (modelValue && modelValue.toLowerCase().includes('innato'))) {
+        // Get the tuning information
+        const hasTuning = getNoteTuningFromSpecifications(order as any);
+        if (!hasTuning) {
+          console.log('INNATO without tuning identified as CARDS (from specifications)');
+          return 'CARDS';
+        }
+      }
+      
+      // Model field takes precedence
+      if (modelValue) {
+        // Check if model is for cards
+        if (modelValue.toLowerCase().includes('card')) {
+          return 'CARDS';
+        }
+        
+        // For ZEN flutes, just use 'ZEN' without including the size
+        if (modelValue.toLowerCase().includes('zen')) {
+          return 'ZEN';
+        }
+        
+        // For NATEY flutes, return just 'NATEY'
+        if (modelValue.toLowerCase().includes('natey')) {
+          return 'NATEY';
+        }
+        
+        // For INNATO flutes, return just 'INNATO'
+        if (modelValue.toLowerCase().includes('innato')) {
+          return 'INNATO';
+        }
+        
+        // For DOUBLE flutes, return just 'DOUBLE'
+        if (modelValue.toLowerCase().includes('double')) {
+          return 'DOUBLE';
+        }
+        
+        // Return just the base model without tuning info
+        return modelValue.split(' ')[0];
+      }
+      
+      // Type field as fallback
+      if (typeValue) {
+        // Check if type is for cards
+        if (typeValue.toLowerCase().includes('card')) {
+          return 'CARDS';
+        }
+        
+        // For ZEN flutes, just use 'ZEN' in the Type column
+        if (typeValue.toLowerCase().includes('zen')) {
+          return 'ZEN';
+        }
+        
+        // For OvA flutes, use 'OvA' in the Type column
+        if (typeValue.toLowerCase().includes('ova')) {
+          return 'OvA';
+        }
+        
+        // If type has model name embedded, extract just the model name
+        if (typeValue.toLowerCase().includes('innato')) {
+          return 'INNATO';
+        } else if (typeValue.toLowerCase().includes('natey')) {
+          return 'NATEY';
+        } else if (typeValue.toLowerCase().includes('double')) {
+          return 'DOUBLE';
+        }
+        
+        // Return just the first word of the type
+        return typeValue.split(' ')[0];
+      }
+    }
+    
+    return undefined;
+  }
+  
+  // Helper function to extract color from specifications
+  function getColorFromSpecifications(order: Order | OrderItem): string | undefined {
+    const serialNumber = 'serialNumber' in order ? order.serialNumber : '';
+    const isTargetItem = serialNumber === 'SW-1580-2';
+    
+    console.log('Getting color from specifications for:', 
+      'id' in order ? `Item ID: ${order.id}${isTargetItem ? ' (TARGET ITEM SW-1580-2)' : ''}` : 
+      `Order: ${order.orderNumber}`);
+    
+    // First check if there's a color field directly on the item
+    if ('color' in order && order.color) {
+      console.log('Using direct color property:', order.color);
+      const result = detectColorCode(order.color);
+      if (isTargetItem) {
+        console.log('TARGET ITEM: Color result from direct property:', result);
+      }
+      return result;
+    }
+    
+    // For multi-instrument orders, ensure we're getting the specific item's color
+    const specs = ('specifications' in order) ? order.specifications : undefined;
+    if (specs && typeof specs === 'object') {
+      const specsRecord = specs as Record<string, string>;
+      
+      if (isTargetItem) {
+        console.log('TARGET ITEM SW-1580-2 SPECS:', JSON.stringify(specsRecord, null, 2));
+      }
+      
+      // Look for color in specifications
+      for (const key in specsRecord) {
+        if (key.toLowerCase() === 'color' || key.toLowerCase().includes('color')) {
+          const fullColor = specsRecord[key];
+          if (fullColor) {
+            console.log('Processing color from specifications:', fullColor);
+            const result = detectColorCode(fullColor);
+            
+            if (isTargetItem) {
+              console.log('TARGET ITEM: Color specs found:', key, '=', fullColor);
+              console.log('TARGET ITEM: Color result from detectColorCode:', result);
+            }
+            
+            return result;
+          }
+        }
+      }
+      
+      // Special case for INNATO exploration cards products
+      const typeValue = specsRecord?.['type'] || '';
+      const modelValue = specsRecord?.['model'] || '';
+      
+      const isInnato = typeValue.toLowerCase().includes('innato') || 
+                      modelValue.toLowerCase().includes('innato');
+                      
+      const hasNoTuning = !specsRecord['noteTuning'] && !specsRecord['note'] && !specsRecord['tuningNote'];
+      
+      if (isInnato && hasNoTuning) {
+        console.log('Special case: INNATO without tuning identified as CARDS (direct check)');
+        return 'CARDS';
+      }
+    }
+    
+    console.log('No color found in specifications');
+    return undefined;
+  }
+  
+  /**
+   * Standardized color detection system for flute colors
+   * 
+   * This function maps color descriptions to standard color codes:
+   * B = Blue with Terra and Gold Bubbles (not smoke-fired)
+   * SB = Smokefired Blue with Terra/Gold Bubbles
+   * T = Smokefired Terra and Black (tiger stripe)
+   * TB = Smokefired Terra with Terra and Bronze Bubbles
+   * C = Smokefired Black with Terra and Copper Bubbles
+   * 
+   * @param fullColor The color string to process
+   * @returns A standardized color code or the original string if no match
+   */
+  function detectColorCode(fullColor: string): string {
+    // Special debugging for our problematic SW-1580-2 item
+    const isTargetColor = fullColor === "Smokefired black with Terra and Copper Bubbles";
+    
+    if (isTargetColor) {
+      console.log("FOUND TARGET COLOR STRING EXACTLY:", fullColor);
+      console.log("FORCING COLOR CODE TO C FOR:", fullColor);
+      return 'C';
+    }
+    
+    // Handle empty or undefined input
+    if (!fullColor) return '';
+    
+    // For direct codes, return them immediately
+    const directCodes = ['B', 'SB', 'T', 'TB', 'C'];
+    if (directCodes.includes(fullColor)) {
+      return fullColor;
+    }
+    
+    const colorLower = fullColor.toLowerCase().trim();
+    
+    // ======= COLOR DETECTION RULES =======
+    
+    // RULE 1: BLUE (B) - NOT SMOKE-FIRED
+    // Blue flutes must never be marked as smoke-fired
+    if (colorLower === 'blue' || 
+        colorLower === 'b' ||
+        (colorLower.includes('blue') && 
+         !colorLower.includes('smokefired') && 
+         !colorLower.includes('smoke fired') && 
+         !colorLower.includes('smoke-fired'))) {
+      
+      console.log('Color identified as Blue (B) - NOT smoke-fired:', fullColor);
+      return 'B';
+    }
+    
+    // RULE 2: SMOKE-FIRED VARIANTS
+    // Look for smokefired keyword first
+    const isSmokeFired = colorLower.includes('smokefired') || 
+                         colorLower.includes('smoke fired') || 
+                         colorLower.includes('smoke-fired');
+    
+    if (isSmokeFired) {
+      // RULE 2.1: SMOKEFIRED BLUE (SB)
+      if (colorLower.includes('blue')) {
+        console.log('Color identified as Smokefired Blue (SB):', fullColor);
+        return 'SB';
+      }
+      
+      // RULE 2.2: SMOKEFIRED BLACK WITH COPPER (C)
+      // This is the specific case for SW-1580-2 and similar orders
+      if ((colorLower.includes('black') && colorLower.includes('copper')) ||
+          (colorLower.includes('black') && colorLower.includes('terra') && colorLower.includes('copper'))) {
+        console.log('Color identified as Smokefired Black/Copper (C):', fullColor);
+        return 'C';
+      }
+      
+      // RULE 2.3: SMOKEFIRED TERRA WITH BRONZE (TB)
+      if (colorLower.includes('terra') && colorLower.includes('bronze')) {
+        console.log('Color identified as Smokefired Terra with Bronze (TB):', fullColor);
+        return 'TB';
+      }
+      
+      // RULE 2.4: SMOKEFIRED TERRA AND BLACK / TIGER (T)
+      if ((colorLower.includes('terra and black') || 
+           colorLower.includes('tiger') || 
+           colorLower.includes('tiger red'))) {
+        console.log('Color identified as Smokefired Terra (T):', fullColor);
+        return 'T';
+      }
+      
+      // RULE 2.5: GENERIC SMOKEFIRED BLACK (default to C)
+      if (colorLower.includes('black')) {
+        console.log('Color identified as Smokefired Black (C - generic match):', fullColor);
+        return 'C';
+      }
+    }
+    
+    // RULE 3: EXACT STRING MATCHES
+    // These catch any specific variations that might not be caught by pattern rules
+    
+    // Blue exact matches
+    const blueExactMatches = [
+      'blue, with terra and gold bubbles',
+      'blue/ red and gold bubbles',
+      'blue, red and gold bubbles',
+      'blue/red and gold bubbles'
+    ];
+    
+    if (blueExactMatches.includes(colorLower)) {
+      console.log('Color identified as Blue (B) - exact match:', fullColor);
+      return 'B';
+    }
+    
+    // SB exact matches
+    const sbExactMatches = [
+      'smokefired blue, red and gold bubbles',
+      'smokefired blue with red and bronze bubbles',
+      'smoke fired blue/ red and gold bubbles',
+      'smokefired blue/ red and gold bubbles',
+      'smokefired blue/red and gold bubbles'
+    ];
+    
+    if (sbExactMatches.includes(colorLower)) {
+      console.log('Color identified as Smokefired Blue (SB) - exact match:', fullColor);
+      return 'SB';
+    }
+    
+    // T exact matches
+    const tExactMatches = [
+      'smokefired terra and black',
+      'smokefired terra and black (tiger stripe)',
+      'smoke fired terra and black (tiger stripe)',
+      'smoke fired tiger red',
+      'smokefired tiger red'
+    ];
+    
+    if (tExactMatches.includes(colorLower)) {
+      console.log('Color identified as Smokefired Terra (T) - exact match:', fullColor);
+      return 'T';
+    }
+    
+    // TB exact matches
+    const tbExactMatches = [
+      'smokefired terra with terra and bronze bubbles',
+      'smoke fired terra with terra and bronze bubbles'
+    ];
+    
+    if (tbExactMatches.includes(colorLower)) {
+      console.log('Color identified as Smokefired Terra Bronze (TB) - exact match:', fullColor);
+      return 'TB';
+    }
+    
+    // C exact matches - critical for SW-1580-2 case
+    const cExactMatches = [
+      'smoke fired black with terra and copper bubbles',
+      'smokefired black/ red and copper bubbles',
+      'smokefired black/red and copper bubbles',
+      'smokefired black with terra and copper bubbles'
+    ];
+    
+    if (cExactMatches.includes(colorLower)) {
+      console.log('Color identified as Smokefired Black/Copper (C) - exact match:', fullColor);
+      return 'C';
+    }
+    
+    // RULE 4: CARDS product detection (special case)
+    if (colorLower.includes('cards') ||
+        colorLower.includes('exploration') ||
+        colorLower === 'cards') {
+      return 'CARDS';
+    }
+    
+    // If no matches found, return the original color string
+    console.log('Using full color text, no matching code found:', fullColor);
+    return fullColor;
+  }
+  
+  // Function to check if flute color needs smoke firing
+  // This function is used to determine if the SM checkbox should be auto-checked
+  function needsSmokeFiring(order: Order | OrderItem): boolean {
+    // Get color from the color detection function
+    const colorValue = getColorFromSpecifications(order);
+    
+    // If no color found, return false (don't auto-check)
+    if (!colorValue) return false;
+    
+    // For multi-instrument orders, check if we're dealing with a B (Blue) flute
+    // These should never be smoke-fired even in multi-item orders
+    if (colorValue === 'B') {
+      console.log('Blue (B) flute detected - does NOT need smoke firing');
+      return false;
+    }
+    
+    // Log the color value to help with debugging
+    console.log('Color value for smoke firing check:', colorValue);
+    
+    // Auto-check SM checkbox for these specific smoke-fired colors: SB, T, TB, C
+    const needsSmoking = (
+      colorValue === 'SB' || 
+      colorValue === 'T' ||
+      colorValue === 'TB' || 
+      colorValue === 'C'
+    );
+    
+    console.log('Needs smoke firing:', needsSmoking);
+    return needsSmoking;
+  }
+  
+  // Helper function to extract instrument name from specifications
+  function getInstrumentName(order: Order | OrderItem): string | undefined {
+    // Check specifications for instrument name
+    const specs = ('specifications' in order) ? order.specifications : undefined;
+    if (specs && typeof specs === 'object') {
+      const specsRecord = specs as Record<string, string>;
+      
+      // Look for instrument name in various possible fields
+      return specsRecord['instrumentName'] || 
+             specsRecord['instrument'] || 
+             specsRecord['name'] || 
+             specsRecord['product'] ||
+             specsRecord['model'];
+    }
+    
+    return undefined;
+  }
+  
+  // Determine appropriate bag size & type for a specific instrument
+  function getBagInfo(order: Order | OrderItem): { type: string, size: string } | undefined {
+    console.log('Getting bag info for order:', order);
+    
+    // First check if bag info is explicitly stored in the specifications
+    if ('specifications' in order && 
+        typeof order.specifications === 'object' && 
+        order.specifications) {
+      const specs = order.specifications as Record<string, any>;
+      
+      // Check for different property naming formats
+      if (specs.bagType && specs.bagSize) {
+        console.log('Using explicitly defined bag info:', specs.bagType, specs.bagSize);
+        return { type: specs.bagType, size: specs.bagSize };
+      }
+      
+      if (specs['Bag Type'] && specs['Bag Size']) {
+        console.log('Using Title Case bag info:', specs['Bag Type'], specs['Bag Size']);
+        return { type: specs['Bag Type'], size: specs['Bag Size'] };
+      }
+      
+      if (specs['bag type'] && specs['bag size']) {
+        console.log('Using lowercase bag info:', specs['bag type'], specs['bag size']);
+        return { type: specs['bag type'], size: specs['bag size'] };
+      }
+    }
+    
+    // If not in specifications, determine based on type and tuning
+    const instrumentType = getTypeFromSpecifications(order);
+    const tuningNote = getNoteTuningFromSpecifications(order);
+    
+    if (!instrumentType) return undefined;
+    
+    // Get instrument type in normalized format
+    const typeUpper = instrumentType.toUpperCase();
+    
+    // Use the utility functions to get bag size from the API material settings
+    if (materialSettings) {
+      // Special case for CARDS (no bag needed)
+      if (typeUpper.includes('CARDS')) {
+        console.log('CARDS product - no bag needed');
+        return { type: 'None', size: '-' };
+      }
+      
+      // Get the bag size from material settings API
+      const bagSize = getBagSizeFromMaterialSettings(materialSettings, order);
+      
+      if (bagSize) {
+        // Determine the bag type from the instrument type
+        let bagType = 'Standard';
+        
+        if (typeUpper.includes('INNATO')) bagType = 'Innato';
+        else if (typeUpper.includes('NATEY')) bagType = 'Natey';
+        else if (typeUpper.includes('ZEN')) bagType = 'ZEN';
+        else if (typeUpper.includes('DOUBLE')) bagType = 'Double';
+        else if (typeUpper.includes('OVA')) bagType = 'OvA';
+        
+        console.log('Using bag info from material settings API:', bagType, bagSize);
+        return { type: bagType, size: bagSize };
+      }
+    }
+    
+    // FALLBACK to hardcoded values if no material settings available
+    
+    // Clean tuning note if it has format like "Cm4" -> "C4"
+    let cleanedTuning = tuningNote;
+    if (cleanedTuning && cleanedTuning.match(/[A-G][#b]?m[0-9]/)) {
+      cleanedTuning = cleanedTuning.replace(/m(?=[0-9])/i, '');
+      console.log('Cleaned tuning in fallback:', tuningNote, '->', cleanedTuning);
+    }
+    
+    // INNATO bag sizes
+    if (typeUpper.includes('INNATO')) {
+      console.log('FALLBACK: Processing INNATO with tuning:', cleanedTuning);
+      
+      // For notes in the E4-D4 range
+      if (cleanedTuning?.includes('E4') || cleanedTuning?.includes('D#4') || cleanedTuning?.includes('D4')) {
+        console.log('FALLBACK: INNATO E4-D4 -> Size S');
+        return { type: 'Innato', size: 'S' };
+      } 
+      // For notes in the C#4-C4 range
+      else if (cleanedTuning?.includes('C#4') || cleanedTuning?.includes('C4')) {
+        console.log('FALLBACK: INNATO C#4-C4 -> Size M');
+        return { type: 'Innato', size: 'M' };
+      } 
+      // For notes in the B3-Bb3 range
+      else if (cleanedTuning?.includes('B3') || cleanedTuning?.includes('Bb3')) {
+        console.log('FALLBACK: INNATO B3-Bb3 -> Size L');
+        return { type: 'Innato', size: 'L' };
+      } 
+      // For notes in the A3-G#3 range
+      else if (cleanedTuning?.includes('A3') || cleanedTuning?.includes('G#3')) {
+        console.log('FALLBACK: INNATO A3-G#3 -> Size XL');
+        return { type: 'Innato', size: 'XL' };
+      } 
+      // For notes in the G3-E3 range
+      else if (cleanedTuning?.includes('G3') || cleanedTuning?.includes('F#3') || 
+               cleanedTuning?.includes('F3') || cleanedTuning?.includes('E3')) {
+        console.log('FALLBACK: INNATO G3-E3 -> Size XXL');
+        return { type: 'Innato', size: 'XXL' };
+      } 
+      else {
+        console.log('FALLBACK: INNATO default -> Size M');
+        return { type: 'Innato', size: 'M' }; // Default
+      }
+    } 
+    // NATEY bag sizes
+    else if (typeUpper.includes('NATEY')) {
+      console.log('FALLBACK: Processing NATEY with tuning:', cleanedTuning);
+      
+      // Special case for DM4 or M format
+      if (cleanedTuning?.includes('DM4') || cleanedTuning?.includes('M')) {
+        console.log('FALLBACK: NATEY DM4/M -> Size M');
+        return { type: 'Natey', size: 'M' };
+      }
+      
+      // For notes in the A4-F#4 range
+      if (cleanedTuning?.includes('A4') || cleanedTuning?.includes('G#4') || 
+          cleanedTuning?.includes('G4') || cleanedTuning?.includes('F#4')) {
+        console.log('FALLBACK: NATEY A4-F#4 -> Size S');
+        return { type: 'Natey', size: 'S' };
+      } 
+      // For notes in the F4-B3 range
+      else if (cleanedTuning?.includes('F4') || cleanedTuning?.includes('E4') || 
+               cleanedTuning?.includes('D4') || cleanedTuning?.includes('C4') || 
+               cleanedTuning?.includes('B3')) {
+        console.log('FALLBACK: NATEY F4-B3 -> Size M');
+        return { type: 'Natey', size: 'M' };
+      } 
+      // For notes in the Bb3-G3 range
+      else if (cleanedTuning?.includes('Bb3') || cleanedTuning?.includes('A3') || 
+               cleanedTuning?.includes('G#3') || cleanedTuning?.includes('G3')) {
+        console.log('FALLBACK: NATEY Bb3-G3 -> Size L');
+        return { type: 'Natey', size: 'L' };
+      } 
+      else {
+        console.log('FALLBACK: NATEY default -> Size M');
+        return { type: 'Natey', size: 'M' }; // Default
+      }
+    } 
+    // ZEN flute bags
+    else if (typeUpper.includes('ZEN')) {
+      console.log('FALLBACK: Processing ZEN instrument with size:', cleanedTuning);
+      
+      // ZEN flutes use the size indicator directly as the bag size
+      if (cleanedTuning === 'L') {
+        console.log('FALLBACK: ZEN size L -> Bag L');
+        return { type: 'ZEN', size: 'L' };
+      } else if (cleanedTuning === 'M') {
+        console.log('FALLBACK: ZEN size M -> Bag M');
+        return { type: 'ZEN', size: 'M' };
+      } else {
+        console.log('FALLBACK: ZEN unknown size -> Default Bag M');
+        return { type: 'ZEN', size: 'M' }; // Default
+      }
+    } 
+    // DOUBLE flute bags
+    else if (typeUpper.includes('DOUBLE')) {
+      console.log('FALLBACK: Processing DOUBLE instrument with tuning:', cleanedTuning);
+      
+      // For notes in the C#4-B3 range
+      if (cleanedTuning?.includes('C#4') || 
+          cleanedTuning?.includes('C4') || 
+          cleanedTuning?.includes('B3')) {
+        console.log('FALLBACK: DOUBLE C#4-B3 -> Bag M');
+        return { type: 'Double', size: 'M' };
+      } 
+      // For notes in the Bb3-G3 range
+      else if (cleanedTuning?.includes('Bb3') || 
+               cleanedTuning?.includes('A3') || 
+               cleanedTuning?.includes('G#3') || 
+               cleanedTuning?.includes('G3')) {
+        console.log('FALLBACK: DOUBLE Bb3-G3 -> Bag L');
+        return { type: 'Double', size: 'L' };
+      } 
+      else {
+        console.log('FALLBACK: DOUBLE unknown tuning -> Default Bag M');
+        return { type: 'Double', size: 'M' }; // Default
+      }
+    } 
+    // OVA flutes
+    else if (typeUpper.includes('OVA') || typeUpper === 'OVA') {
+      return { type: 'OvA', size: 'OvAbag' };
+    } 
+    // CARDS don't need bags
+    else if (typeUpper.includes('CARDS')) {
+      return undefined;
+    }
+    
+    return undefined;
+  }
+  
+  // Determine appropriate box size based on instrument type and tuning
+  function getBoxSize(order: Order | OrderItem): string | undefined {
+    console.log('Getting box size for order:', order);
+    
+    // First check if box size is explicitly stored in the specifications
+    if ('specifications' in order && 
+        typeof order.specifications === 'object' && 
+        order.specifications) {
+      const specs = order.specifications as Record<string, any>;
+      
+      // Check for custom joint box settings first (highest priority)
+      if (specs.customBoxSize && specs.useJointBox) {
+        console.log('Using joint custom box size:', specs.customBoxSize);
+        return specs.customBoxSize + ' (Joint)';
+      }
+      
+      // Check for box size in different formats
+      if (specs.boxSize) {
+        console.log('Using specified box size from specs.boxSize:', specs.boxSize);
+        // Fix E~NVELOPE to ENVELOPE
+        if (specs.boxSize === 'E~NVELOPE') {
+          return 'ENVELOPE';
+        }
+        return specs.boxSize;
+      }
+      
+      if (specs['Box Size']) {
+        console.log('Using specified box size from specs.Box Size:', specs['Box Size']);
+        // Fix E~NVELOPE to ENVELOPE
+        if (specs['Box Size'] === 'E~NVELOPE') {
+          return 'ENVELOPE';
+        }
+        return specs['Box Size'];
+      }
+      
+      if (specs['box size']) {
+        console.log('Using specified box size from specs.box size:', specs['box size']);
+        // Fix E~NVELOPE to ENVELOPE
+        if (specs['box size'] === 'E~NVELOPE') {
+          return 'ENVELOPE';
+        }
+        return specs['box size'];
+      }
+    }
+    
+    // Use the utility functions to get box size from the API material settings
+    if (materialSettings) {
+      // First try directly looking for the box size in material settings
+      const boxSize = getBoxSizeFromMaterialSettings(materialSettings, order);
+      if (boxSize) {
+        console.log('Using box size from material settings API:', boxSize);
+        return boxSize;
+      }
+    }
+    
+    // If direct material settings failed, try using the bag size information
+    // This approach leverages the working bag logic and matches it to the proper box
+    const bagInfo = getBagInfo(order);
+    if (bagInfo) {
+      const instrumentType = getTypeFromSpecifications(order);
+      if (!instrumentType) return undefined;
+      
+      // Get instrument type in normalized format for material settings lookup
+      let normalizedType = instrumentType.toLowerCase();
+      if (normalizedType.includes('innato')) normalizedType = 'innato';
+      else if (normalizedType.includes('natey')) normalizedType = 'natey';
+      else if (normalizedType.includes('zen')) normalizedType = 'zen';
+      else if (normalizedType.includes('double')) normalizedType = 'double';
+      else if (normalizedType.includes('ova')) normalizedType = 'ova';
+      else if (normalizedType.includes('card')) normalizedType = 'cards';
+      
+      console.log(`Looking for box size for ${normalizedType} with bag size ${bagInfo.size}`);
+      
+      // Find a material setting with this bag size for this instrument type
+      if (materialSettings && materialSettings[normalizedType]) {
+        const instrumentSettings = materialSettings[normalizedType];
+        
+        // Try to find a setting with the same bag size
+        const bagSizeMatch = instrumentSettings.find(setting => setting.bagSize === bagInfo.size);
+        if (bagSizeMatch?.boxSize) {
+          console.log('Found box size from matching bag size:', bagSizeMatch.boxSize);
+          return bagSizeMatch.boxSize;
+        }
+      }
+    }
+    
+    // If we get here, we couldn't find a box size from material settings, so use fallback logic
+    const instrumentType = getTypeFromSpecifications(order);
+    const tuningNote = getNoteTuningFromSpecifications(order);
+    
+    console.log('Fallback: Using hardcoded values for type:', instrumentType, 'tuning:', tuningNote);
+    
+    if (!instrumentType) return undefined;
+    
+    // Get instrument type in normalized format
+    const typeUpper = instrumentType.toUpperCase();
+    
+    // Clean tuning note if it has format like "Cm4" -> "C4"
+    let cleanedTuning = tuningNote;
+    if (cleanedTuning && cleanedTuning.match(/[A-G][#b]?m[0-9]/)) {
+      cleanedTuning = cleanedTuning.replace(/m(?=[0-9])/i, '');
+      console.log('Cleaned tuning in box fallback:', tuningNote, '->', cleanedTuning);
+    }
+
+    // Use the correct box sizes based on instrument types
+    if (typeUpper.includes('INNATO')) {
+      console.log('FALLBACK BOX: INNATO instrument');
+      
+      // Check if note indicates lower tuning (G3-E3) for larger box
+      if (cleanedTuning?.includes('G3') || 
+          cleanedTuning?.includes('F#3') || 
+          cleanedTuning?.includes('F3') || 
+          cleanedTuning?.includes('E3')) {
+        console.log('FALLBACK BOX: INNATO lower tuning (G3-E3) -> Box 35x35x35');
+        return '35x35x35';
+      } else {
+        console.log('FALLBACK BOX: INNATO standard tuning -> Box 30x30x30');
+        return '30x30x30';
+      }
+    } 
+    else if (typeUpper.includes('NATEY')) {
+      // NATEY: A4-F4 use 15x15x15, others use 12x12x30
+      if (cleanedTuning?.includes('A4') || 
+          cleanedTuning?.includes('G#4') || 
+          cleanedTuning?.includes('G4') || 
+          cleanedTuning?.includes('F#4') || 
+          cleanedTuning?.includes('F4')) {
+        console.log('FALLBACK BOX: NATEY high notes (A4-F4) -> Box 15x15x15');
+        return '15x15x15';
+      } else {
+        console.log('FALLBACK BOX: NATEY lower notes -> Box 12x12x30');
+        return '12x12x30';
+      }
+    } 
+    else if (typeUpper.includes('ZEN')) {
+      console.log('FALLBACK BOX: ZEN -> Box 15x15x15');
+      return '15x15x15';
+    } 
+    else if (typeUpper.includes('DOUBLE')) {
+      console.log('FALLBACK BOX: DOUBLE -> Box 20x20x20');
+      return '20x20x20';
+    } 
+    else if (typeUpper.includes('OVA') || typeUpper === 'OVA') {
+      console.log('FALLBACK BOX: OVA -> Box 40x40x60');
+      return '40x40x60';
+    } 
+    else if (typeUpper.includes('CARDS')) {
+      console.log('FALLBACK BOX: CARDS -> Box ENVELOPE');
+      return 'ENVELOPE';
+    }
+    
+    return undefined;
+  }
+  
+  // Get visual color class based on color code
+  function getColorClass(colorCode: string): string {
+    if (!colorCode) return 'finish-color bg-gray-100 text-gray-800';
+    
+    switch(colorCode) {
+      case 'B':
+        return 'finish-color finish-B';
+      case 'TB':
+        return 'finish-color bg-amber-700 text-white'; // Darker terra brown/orange
+      case 'T':
+        return 'finish-color finish-T'; // Tiger stripe pattern
+      case 'SB':
+        return 'finish-color finish-SB'; // Dark turquoise
+      case 'R':
+        return 'finish-color bg-red-100 text-red-800';
+      case 'BL':
+        return 'finish-color bg-gray-800 text-white';
+      case 'G':
+        return 'finish-color bg-yellow-100 text-yellow-800';
+      case 'N':
+        return 'finish-color bg-stone-100 text-stone-800';
+      case 'S':
+        return 'finish-color bg-zinc-200 text-zinc-800';
+      case 'C':
+        return 'finish-color bg-[#B87333] text-white'; // Copper color
+      default:
+        return 'finish-color bg-gray-100 text-gray-800';
+    }
+  }
+  
+  // Get color class for instrument types
+  // Generate a unique color shade based on order ID for multi-item orders
+  function getUniqueOrderColor(orderId: number): string {
+    // Create different hue values based on orderId - values range to create visually distinct colors
+    // We'll use a color in the gray/blue range to keep it subtle but distinguishable
+    const hue = (orderId * 7) % 30; // Small range of hues (0-30) to stay in cool blues/grays
+    const saturation = 5 + (orderId % 6); // Subtle saturation differences (5-10%)
+    const lightness = 88 - (orderId % 4); // Keep it light but with subtle variations (84-88%)
+    
+    return `hsl(${hue}, ${saturation}%, ${lightness}%)`;
+  }
+  
+  // Function to get background color for cells based on order item count
+  function getCellBackgroundColor(orderItems: OrderItem[], orderId: number): string {
+    // Return a unique shade for multi-item orders, otherwise use alternating colors based on order ID
+    return orderItems.length > 1 ? getUniqueOrderColor(orderId) : (orderId % 2 === 0 ? '#FCFCFB' : '#F5F5F0');
+  }
+  
+  // Helper function to use in individual table cells where we need the background color
+  function getBackgroundColorStyle(orderItems: OrderItem[], orderId: number) {
+    return { 
+      backgroundColor: orderItems.length > 1 ? getUniqueOrderColor(orderId) : (orderId % 2 === 0 ? '#F5F5F0' : '#F9F0E8'),
+      zIndex: 10
+    };
+  }
+
+  function getInstrumentTypeColorClass(type: string | undefined): string {
+    if (!type) return 'type-color bg-gray-600 text-white';
+    
+    // Create a safer version by removing spaces and special characters
+    const safeType = type.toUpperCase().replace(/[^A-Z0-9]/g, '');
+    
+    // Handle specific cases first
+    if (safeType.includes('ZENFLUTE')) {
+      return 'type-color type-ZEN';
+    }
+    
+    if (safeType.includes('INNATOEXPLORATION') || safeType.includes('CARDS')) {
+      return 'type-color type-CARDS';
+    }
+    
+    // Check for the primary instrument types
+    if (safeType.includes('INNATO')) {
+      return 'type-color type-INNATO';
+    }
+    
+    if (safeType.includes('NATEY')) {
+      return 'type-color type-NATEY';
+    }
+    
+    if (safeType.includes('DOUBLE')) {
+      return 'type-color type-DOUBLE';
+    }
+    
+    if (safeType.includes('ZEN')) {
+      return 'type-color type-ZEN';
+    }
+    
+    if (safeType.includes('OVA')) {
+      return 'type-color type-OVA';
+    }
+    
+    // Default gray for unknown types
+    return 'type-color bg-gray-600 text-white';
+  }
+  
+  // Helper function to extract note tuning (A3, C4, etc.) from specifications
+  function getNoteTuningFromSpecifications(order: Order | OrderItem): string | undefined {
+    console.log('------------------ getNoteTuningFromSpecifications ------------------');
+    
+    // SPECIAL CASE FOR OvA MODELS: Just display "OvA" instead of full tuning
+    
+    // Special case for order 1569 - Always return "OvA" regardless of what's in the specifications
+    if ('orderNumber' in order && order.orderNumber?.includes('1569')) {
+      return 'OvA';
+    }
+    
+    // Check if it's an OvA model from itemType or specifications
+    const isOva = 
+      ('itemType' in order && order.itemType?.toLowerCase()?.includes('ova')) ||
+      (('specifications' in order) && 
+        typeof order.specifications === 'object' && 
+        order.specifications && 
+        ((order.specifications as any)?.type?.toLowerCase()?.includes('ova') || 
+         (order.specifications as any)?.model?.toLowerCase()?.includes('ova')));
+         
+    if (isOva) {
+      return 'OvA';
+    }
+    
+    // SPECIAL CASE FOR ZEN FLUTES: Display size (L or M) in the Tuning column
+    
+    // Check if it's a ZEN flute directly by itemType or specifications
+    const isZenFlute = 
+      ('itemType' in order && order.itemType === 'ZEN') ||
+      (('specifications' in order) && 
+        typeof order.specifications === 'object' && 
+        order.specifications && 
+        ((order.specifications as any)?.type?.toLowerCase()?.includes('zen') || 
+         (order.specifications as any)?.model?.toLowerCase()?.includes('zen')));
+    
+    if (isZenFlute) {
+      // First check if there's an itemSize field
+      if ('itemSize' in order && order.itemSize) {
+        if (order.itemSize === 'L' || order.itemSize === 'M') {
+          return order.itemSize; // Just return L or M for ZEN flutes
+        }
+      }
+      
+      // Then check specifications for size - extract from the 'type' field too
+      if ('specifications' in order && 
+          typeof order.specifications === 'object' && 
+          order.specifications) {
+        
+        const specs = order.specifications as Record<string, string>;
+        
+        // Check if size is in the type field (like "ZEN flute Medium")
+        if (specs?.['type']) {
+          const typeStr = specs['type'].toLowerCase();
+          if (typeStr.includes('large') || typeStr.includes(' l ') || typeStr.endsWith(' l')) {
+            return 'L';
+          }
+          if (typeStr.includes('medium') || typeStr.includes(' m ') || typeStr.endsWith(' m')) {
+            return 'M';
+          }
+        }
+        
+        // Check for direct size field
+        const sizeValue = specs?.['size'] || specs?.['bag'] || specs?.['bagSize'];
+        if (sizeValue === 'L' || sizeValue === 'M') {
+          return sizeValue;
+        }
+      }
+      
+      // If no size found for ZEN flute, continue with normal tuning detection
+    }
+    
+    // NORMAL CASE FOR ALL OTHER INSTRUMENTS: Show note tuning (A3, C4, etc.)
+    
+    // Function to clean tuning note format or keep minor indicator
+    const cleanTuningNote = (note: string, instrumentType?: string): string => {
+      if (!note) return note;
+      
+      // For Innato instruments, keep the minor indicator "m"
+      if (instrumentType?.toLowerCase()?.includes('innato')) {
+        // If note doesn't have 'm' before the octave number, add it (e.g., C4 -> Cm4)
+        if (note.match(/[A-G][#b]?[1-6]/)) {
+          return note.replace(/([A-G][#b]?)([1-6])/, '$1m$2');
+        }
+        return note; // Return as is if already has 'm' or doesn't match pattern
+      }
+      
+      // For other instruments, remove the 'm' before octave number (Cm4 -> C4)
+      return note.replace(/m(?=[1-6])/i, '');
+    };
+    
+    // First check if there's a note tuning field
+    if ('noteTuning' in order && order.noteTuning && typeof order.noteTuning === 'string') {
+      // Return a cleaned version in case it contains minor indicators
+      return cleanTuningNote(order.noteTuning);
+    }
+    
+    // Then check specifications
+    if ('specifications' in order && 
+        typeof order.specifications === 'object' && 
+        order.specifications) {
+      
+      const specs = order.specifications as Record<string, string>;
+      
+      // Extract tuning from type field which has format like "Natey Am4" or "Innato C#m4"
+      if (specs['type']) {
+        const typeStr = specs['type'];
+        console.log('Analyzing type string for tuning:', typeStr);
+        
+        // Special case for NATEY - extract Am4, Cm4, etc. more aggressively
+        if (typeStr.toLowerCase().includes('natey')) {
+          console.log('NATEY flute detected, applying special tuning extraction');
+          
+          // Check for special Natey DM4 format
+          if (typeStr.match(/\s+D\s*M\s*4\b/i)) {
+            console.log('Special DM4 case detected in:', typeStr);
+            return 'Dm4';
+          }
+          
+          // Match any letter A-G followed by optional sharp/flat, optional 'm', and a number
+          // This handles cases like "Natey Am4", "Natey G#m4", etc.
+          const nateyRegex = /([A-G][#b]?m?[1-6])/i;
+          const nateyMatch = nateyRegex.exec(typeStr);
+          
+          if (nateyMatch && nateyMatch[1]) {
+            console.log('NATEY MATCH FOUND:', nateyMatch[1]);
+            return nateyMatch[1]; // Return the tuning with minor designation intact for NATEY
+          }
+          
+          // Additional check for formats like "Natey Am" without number
+          const altNateyRegex = /([A-G][#b]?m)/i;
+          const altNateyMatch = altNateyRegex.exec(typeStr);
+          
+          if (altNateyMatch && altNateyMatch[1]) {
+            console.log('NATEY ALT MATCH FOUND:', altNateyMatch[1]);
+            return altNateyMatch[1] + '4'; // Add default octave 4 for NATEY without octave number
+          }
+        }
+        
+        // Match patterns like Am4, C#m4, Gm3, etc. - for non-NATEY flutes
+        const simpleRegex = /([A-G][#b]?m?[1-6])/;
+        const noteMatch = simpleRegex.exec(typeStr);
+        if (noteMatch && noteMatch[1]) {
+          // Extract just the note and octave, removing the 'm' for minor
+          // Convert "C#m4" to "C#4", "Gm3" to "G3", etc.
+          const cleanedNote = typeStr.toLowerCase().includes('natey') ? 
+            noteMatch[1] : // Keep 'm' for NATEY flutes
+            cleanTuningNote(noteMatch[1]); // Remove 'm' for others
+            
+          console.log('Extracted note tuning:', noteMatch[1], '->', cleanedNote);
+          return cleanedNote; // Return the cleaned tuning note (e.g., "A4", "C#4")
+        }
+        
+        // Extract note from common model names (for INNATO, NATEY, ZEN, etc.)
+        if (typeStr.toLowerCase().includes('innato') || 
+            typeStr.toLowerCase().includes('natey') || 
+            typeStr.toLowerCase().includes('zen')) {
+          
+          // Look for a note pattern like "A", "C#", "F", etc. followed by optional minor or dim
+          const basicNoteMatch = typeStr.match(/\s([A-G][#b]?(m|dim)?)\s/);
+          if (basicNoteMatch && basicNoteMatch[1]) {
+            // Get the base note (e.g., "C#", "F")
+            let baseNote = basicNoteMatch[1];
+            
+            // Determine the octave based on the instrument type
+            if (typeStr.toLowerCase().includes('innato')) {
+              // Clean if it has minor indicator like Cm -> C
+              return cleanTuningNote(`${baseNote}4`); // INNATO typically in octave 4
+            } else if (typeStr.toLowerCase().includes('natey')) {
+              return cleanTuningNote(`${baseNote}3`); // NATEY typically in octave 3
+            } else if (typeStr.toLowerCase().includes('zen')) {
+              return cleanTuningNote(`${baseNote}4`); // ZEN typically in octave 4
+            }
+            
+            return baseNote; // Default with no octave
+          }
+        }
+      }
+      
+      // Check for tuning note fields
+      const noteTuning = specs['note'] || 
+                        specs['keyNote'] || 
+                        specs['noteTuning'] || 
+                        specs['tuningNote'] ||
+                        specs['tuningKey'];
+      
+      // Clean the note tuning if found
+      if (noteTuning) {
+        return cleanTuningNote(noteTuning);
+      }
+    }
+    
+    return undefined;
+  }
+  
+  // Helper function to extract tuning frequency from specifications
+  function getTuningFrequencyFromSpecifications(order: Order | OrderItem): string | undefined {
+    // FORCE DEBUG - Check for type and log
+    const orderType = getTypeFromSpecifications(order);
+    const specs = ('specifications' in order) ? order.specifications : undefined;
+    
+    console.log('DEBUG - Getting frequency for:', {
+      orderType,
+      specs,
+      id: ('id' in order) ? order.id : undefined,
+      serialNumber: ('serialNumber' in order) ? order.serialNumber : undefined
+    });
+    
+    // Force 432Hz for all instruments with "432" anywhere in their specs or name
+    if (specs && typeof specs === 'object') {
+      const specsString = JSON.stringify(specs).toLowerCase();
+      if (specsString.includes('432')) {
+        console.log('FORCE - Found 432Hz in specs');
+        return '432Hz';
+      }
+    }
+    
+    // Check if there's a name with 432 in it
+    if ('name' in order && order.name && order.name.includes('432')) {
+      console.log('FORCE - Found 432Hz in name');
+      return '432Hz';
+    }
+    
+    // First check if there's a tuningType field
+    if ('tuningType' in order && order.tuningType) {
+      // If tuningType contains 432, force it
+      if (order.tuningType.includes('432')) {
+        console.log('FORCE - Found 432Hz in tuningType');
+        return '432Hz';
+      }
+      return order.tuningType;
+    }
+    
+    // Then check specifications
+    if (specs && typeof specs === 'object') {
+      const specsRecord = specs as Record<string, string>;
+      
+      // Enhanced check for 432Hz in any field
+      for (const key in specsRecord) {
+        const value = specsRecord[key];
+        if (value && typeof value === 'string' && value.includes('432')) {
+          console.log(`FORCE - Found 432Hz in specs field: ${key}`);
+          return '432Hz';
+        }
+      }
+      
+      // Check for tuning frequency related fields
+      const tuningFreq = specsRecord['tuningFrequency'] || 
+                         specsRecord['frequency'] || 
+                         specsRecord['tuning'] || 
+                         specsRecord['key'] ||
+                         specsRecord['hz'];
+                         
+      if (tuningFreq) {
+        // If it doesn't have "Hz" suffix, add it
+        if (tuningFreq === '432' || tuningFreq === '440') {
+          return `${tuningFreq}Hz`;
+        }
+        return tuningFreq;
+      }
+      
+      // Try to extract from type field if it contains Hz information
+      const typeValue = specsRecord['type'];
+      if (typeValue) {
+        if (typeValue.includes('432')) {
+          return '432Hz';
+        } else if (typeValue.includes('440')) {
+          return '440Hz';
+        }
+      }
+    }
+    
+    return undefined;
+  }
+  
+
+  
+  // Calculate days since order placement with adjustments for non-working periods
+  // Get waiting days color based on days waiting
+  const getWaitingColorClass = (days: number): string => {
+    if (days < 30) {
+      return 'bg-green-100 text-green-800'; // Green for < 30 days
+    } else if (days < 60) {
+      return 'bg-yellow-100 text-yellow-800'; // Yellow for 30-60 days
+    } else if (days < 90) {
+      return 'bg-orange-200 text-orange-800'; // Orange for 60-90 days
+    } else if (days < 120) {
+      return 'bg-red-100 text-red-800'; // Red for 90-120 days
+    } else {
+      return 'bg-red-600 text-white font-bold'; // Signal red for orders waiting 120+ days
+    }
+  };
+  
+  // Calculate waiting days with non-working periods exclusion and time window
+  const calculateAdjustedWaitingDays = (orderDate: Date | string | null): number => {
+    if (!orderDate) return 0;
+    
+    // Convert to Date if string
+    const startDate = typeof orderDate === 'string' ? new Date(orderDate) : orderDate;
+    const today = new Date();
+    
+    // Calculate effective start date based on selected time window
+    let effectiveStartDate = startDate;
+    
+    // If selected window is not "All time" (value > 0), apply the time window limit
+    if (selectedTimeWindow > 0) {
+      const timeWindowStart = new Date();
+      timeWindowStart.setDate(timeWindowStart.getDate() - selectedTimeWindow);
+      
+      // If order is older than the selected time window, use time window as the effective start date
+      if (startDate < timeWindowStart) {
+        effectiveStartDate = timeWindowStart;
+      }
+    }
+    
+    // Calculate total days first (raw waiting days)
+    const totalDays = differenceInDays(today, effectiveStartDate);
+    
+    // If no non-working periods, return raw waiting days
+    if (!nonWorkingPeriods || nonWorkingPeriods.length === 0) {
+      return totalDays;
+    }
+    
+    // Subtract days from non-working periods
+    let adjustedDays = totalDays;
+    
+    for (const period of nonWorkingPeriods) {
+      const periodStart = parseISO(period.start);
+      const periodEnd = period.end ? parseISO(period.end) : new Date();
+      
+      // Skip periods that don't overlap with the order's waiting time
+      if (periodEnd < effectiveStartDate || periodStart > today) {
+        continue;
+      }
+      
+      // Calculate overlap period
+      const overlapStart = periodStart > effectiveStartDate ? periodStart : effectiveStartDate;
+      const overlapEnd = periodEnd < today ? periodEnd : today;
+      
+      // Calculate number of non-working days in this period
+      const nonWorkingDays = differenceInDays(overlapEnd, overlapStart);
+      
+      // Subtract non-working days from total
+      adjustedDays -= Math.max(0, nonWorkingDays);
+    }
+    
+    return Math.max(0, adjustedDays);
+  };
+  
+
+  
+  // Original function (for backward compatibility)
+  const getDaysSinceOrder = (orderDate: Date | string | null) => {
+    if (!orderDate) return "—";
+    
+    const orderTimestamp = new Date(orderDate).getTime();
+    const currentTimestamp = new Date().getTime();
+    const daysDiff = Math.floor((currentTimestamp - orderTimestamp) / (24 * 60 * 60 * 1000));
+    
+    return daysDiff;
+  };
+  
+  // Function to calculate waiting time for an individual item
+  const getItemWaitingDays = (item: OrderItem): number => {
+    // If the item has its own orderDate, use that
+    if (item.orderDate) {
+      return calculateAdjustedWaitingDays(item.orderDate);
+    }
+    
+    // Otherwise, find the parent order's date
+    const parentOrder = allOrders.find(o => o.id === item.orderId);
+    if (parentOrder?.orderDate) {
+      return calculateAdjustedWaitingDays(parentOrder.orderDate);
+    }
+    
+    return 0;
+  };
+  
+  // Get build date for an order
+  const getBuildDate = (order: Order | OrderItem): string => {
+    // First check if item is in building stage and checkbox is checked
+    if (isStatusComplete(order, 'building')) {
+      // First check the dedicated buildDate field if available
+      if ('buildDate' in order && order.buildDate) {
+        return formatDate(order.buildDate);
+      }
+      // Fallback to statusChangeDates for backward compatibility
+      if ('statusChangeDates' in order && order.statusChangeDates?.building) {
+        return formatDate(order.statusChangeDates.building);
+      }
+      // If building is checked but no date is set yet, show today's date
+      return formatDate(new Date().toISOString());
+    }
+    return '—';
+  };
+  
+  // Calculate drying status and days remaining
+  const isDry = (order: Order | OrderItem): { isDryEnough: boolean, daysRemaining: number | null } => {
+    // First check the dedicated buildDate field if available
+    if ('buildDate' in order && order.buildDate) {
+      const buildDateValue = typeof order.buildDate === 'string' 
+        ? new Date(order.buildDate) 
+        : order.buildDate;
+      
+      const fiveDaysAfterBuild = addDays(buildDateValue, 5);
+      const now = new Date();
+      
+      // Calculate days remaining until fully dry
+      const daysRemaining = differenceInDays(fiveDaysAfterBuild, now);
+      
+      // Return both whether it's dry enough and how many days are remaining
+      return { 
+        isDryEnough: now >= fiveDaysAfterBuild,
+        daysRemaining: daysRemaining > 0 ? daysRemaining : 0
+      };
+    }
+    // Fallback to statusChangeDates for backward compatibility
+    else if ('statusChangeDates' in order && order.statusChangeDates?.building) {
+      const buildDate = typeof order.statusChangeDates.building === 'string' 
+        ? new Date(order.statusChangeDates.building) 
+        : order.statusChangeDates.building;
+      
+      const fiveDaysAfterBuild = addDays(buildDate, 5);
+      const now = new Date();
+      
+      // Calculate days remaining until fully dry
+      const daysRemaining = differenceInDays(fiveDaysAfterBuild, now);
+      
+      // Return both whether it's dry enough and how many days are remaining
+      return { 
+        isDryEnough: now >= fiveDaysAfterBuild,
+        daysRemaining: daysRemaining > 0 ? daysRemaining : 0
+      };
+    }
+    return { isDryEnough: false, daysRemaining: null };
+  };
+  
+  // Status columns to display - these match your Excel columns
+  const statusColumns = [
+    { id: 'ordered', label: 'Parts', width: 40 },
+    { id: 'validated', label: 'Prepared', width: 50 },
+    { id: 'building', label: 'BUILD', width: 40, trackDate: true },
+    { id: 'dry', label: 'DRY', width: 40, isAutoCheck: true, dependsOn: 'building', daysNeeded: 5 },
+    { id: 'testing', label: 'TS', width: 40 },
+    { id: 'firing', label: '🔥', width: 30 },
+    { id: 'smoothing', label: 'SM', width: 30 },
+    { id: 'tuning1', label: 'T1', width: 30 },
+    { id: 'waxing', label: 'WAX', width: 40 },
+    { id: 'tuning2', label: 'T2', width: 30 },
+    { id: 'bag', label: 'BAG', width: 50, isMaterialColumn: true, materialType: 'bag' },
+    { id: 'box', label: 'BOX', width: 60, isMaterialColumn: true, materialType: 'box' },
+    { id: 'bagging', label: 'BAG ✓', width: 40 },
+    { id: 'boxing', label: 'BOX ✓', width: 40 },
+    { id: 'labeling', label: 'LAB ✓', width: 40 }
+  ];
+  
+  // Helper to check if a status is completed
+  const isStatusComplete = (order: Order | OrderItem, status: string) => {
+    // For all statuses, ONLY return true if they have been explicitly marked in statusChangeDates
+    // This makes all checkboxes start unchecked by default, even 'ordered' checkbox
+    if (order.statusChangeDates && order.statusChangeDates[status]) {
+      return true;
+    }
+    
+    // Special case for DRY status - auto-checked after 5 days from BUILD date
+    if (status === 'dry' && isDry(order).isDryEnough) {
+      return true;
+    }
+    
+    // Special case for SM (smoothing) checkbox - auto-checked for smoke-fired colors (SB, T, TB, C)
+    if (status === 'smoothing') {
+      // Check if it's a CARDS product (don't auto-check)
+      const type = getTypeFromSpecifications(order);
+      const isCards = type?.toUpperCase().includes('CARDS');
+      
+      if (isCards) {
+        return false;
+      }
+      
+      // Auto-check if this is one of the smoke-fired colors (SB, T, TB, C)
+      if (needsSmokeFiring(order)) {
+        // Make this auto-check more visible in the UI for testing
+        console.log("Auto-checking SM checkbox for smoke-fired color:", getColorFromSpecifications(order));
+        return true;
+      }
+    }
+    
+    // All other checkboxes start unchecked by default
+    return false;
+  };
+  
+  // Handle status change for order with immediate UI feedback
+  const handleOrderStatusChange = (orderId: number, status: string, checked: boolean) => {
+    // Immediately modify the DOM to show the change
+    // This ensures the checkbox visually updates instantly even if queries are slow
+    const checkbox = document.querySelector(`input[data-order-id="${orderId}"][data-status="${status}"]`) as HTMLInputElement;
+    if (checkbox) {
+      checkbox.checked = checked;
+    }
+    
+    // First, look for the order in the current state
+    const orders = queryClient.getQueryData<Order[]>(['/api/orders']) || [];
+    const orderIndex = orders.findIndex(o => o.id === orderId);
+    
+    if (orderIndex === -1) return;
+    
+    // Create a deep copy of orders to work with
+    const newOrders = [...orders];
+    const order = {...newOrders[orderIndex]};
+    
+    // Update the status change dates
+    const updatedDates = {...(order.statusChangeDates || {})};
+    if (checked) {
+      updatedDates[status] = new Date().toISOString();
+    } else {
+      delete updatedDates[status];
+    }
+    
+    // For BUILD checkbox, also update the buildDate field
+    let updateData: Partial<Order> = { statusChangeDates: updatedDates };
+    
+    if (status === 'building') {
+      if (checked) {
+        // Use new Date() directly for Date type field
+        const currentDate = new Date();
+        updateData.buildDate = currentDate;
+      } else {
+        updateData.buildDate = null;
+      }
+    }
+    
+    // Create updated order
+    const updatedOrder = {
+      ...order,
+      ...updateData
+    };
+    
+    // Replace the order in our local array
+    newOrders[orderIndex] = updatedOrder;
+    
+    // Update the cache immediately (this is key for UI responsiveness)
+    queryClient.setQueryData(['/api/orders'], newOrders);
+    
+    // Use offline mode to handle the update - this works in both online and offline modes
+    // The offline mode API will handle syncing when the device comes back online
+    updateOfflineOrder(orderId, updateData);
+  };
+  
+  // Handle status change for item with immediate UI feedback
+  const handleItemStatusChange = (itemId: number, status: string, checked: boolean) => {
+    // Immediately modify the DOM to show the change
+    // This ensures the checkbox visually updates instantly even if queries are slow
+    const checkbox = document.querySelector(`input[data-item-id="${itemId}"][data-status="${status}"]`) as HTMLInputElement;
+    if (checkbox) {
+      checkbox.checked = checked;
+    }
+    
+    // Find the order ID for this item to maintain expand/collapse state
+    const item = allOrderItems.find(i => i.id === itemId);
+    if (item) {
+      // Get the order ID for this item to prevent collapsing
+      const orderId = item.orderId;
+      
+      // Save the collapsed state before making any changes
+      const expandedState = !collapsedOrders[orderId];
+      
+      // If this is a multi-item order, ensure it stays expanded during the update
+      const orderItems = itemsByOrder[orderId] || [];
+      const isMultiItemOrder = orderItems.length > 1;
+      
+      if (isMultiItemOrder && expandedState) {
+        // Explicitly mark this order as expanded to prevent it from collapsing
+        console.log(`Keeping order ${orderId} expanded during status update`);
+        setCollapsedOrders(prev => ({
+          ...prev,
+          [orderId]: false // false means expanded
+        }));
+      }
+      
+      // First, look for the item in the current state
+      const items = queryClient.getQueryData<OrderItem[]>(['/api/order-items']) || [];
+      const itemIndex = items.findIndex(i => i.id === itemId);
+      
+      if (itemIndex === -1) return;
+      
+      // Create a deep copy of items to work with
+      const newItems = [...items];
+      const itemToUpdate = {...newItems[itemIndex]};
+      
+      // Update the status change dates
+      const updatedDates = {...(itemToUpdate.statusChangeDates || {})};
+      if (checked) {
+        updatedDates[status] = new Date().toISOString();
+      } else {
+        delete updatedDates[status];
+      }
+      
+      // For BUILD checkbox, also update the buildDate field
+      let updateData: Partial<OrderItem> = { statusChangeDates: updatedDates };
+      
+      if (status === 'building') {
+        if (checked) {
+          // Convert Date to ISO string for storage compatibility
+          // This fixes an error: "TypeError: value.toISOString is not a function"
+          const currentDate = new Date();
+          updateData.buildDate = currentDate.toISOString();
+        } else {
+          updateData.buildDate = null;
+        }
+      }
+      
+      // Create updated item
+      const updatedItem = {
+        ...itemToUpdate,
+        ...updateData
+      };
+      
+      // Replace the item in our local array
+      newItems[itemIndex] = updatedItem;
+      
+      // Update the cache immediately (this is key for UI responsiveness)
+      queryClient.setQueryData(['/api/order-items'], newItems);
+      
+      // Use offline mode to handle the update - this works in both online and offline modes
+      // The offline mode API will handle syncing when the device comes back online
+      updateOfflineOrderItem(itemId, updateData);
+      
+      // Keep multi-item orders expanded when they were already expanded
+      if (isMultiItemOrder && expandedState) {
+        // Use a timeout to ensure this happens after state updates
+        setTimeout(() => {
+          console.log(`Preserving expanded state for order ${orderId} after data update`);
+          setCollapsedOrders(prev => ({
+            ...prev,
+            [orderId]: false // false means expanded
+          }));
+        }, 100);
+      }
+    }
+  };
+  
+  // Handle material update (bags and boxes)
+  const handleMaterialUpdate = (id: number, isOrder: boolean, materialType: 'bag' | 'box', materialInfo: any) => {
+    // Get existing data
+    if (isOrder) {
+      const orders = queryClient.getQueryData<Order[]>(['/api/orders']) || [];
+      const orderIndex = orders.findIndex(o => o.id === id);
+      
+      if (orderIndex === -1) return;
+      
+      // Create a deep copy of orders to work with
+      const newOrders = [...orders];
+      const order = {...newOrders[orderIndex]};
+      
+      // Create or update specifications object
+      const updatedSpecs: Record<string, any> = {...(order.specifications || {})};
+      
+      if (materialType === 'bag') {
+        // Update in multiple formats to ensure compatibility
+        updatedSpecs.bagType = materialInfo.type;
+        updatedSpecs.bagSize = materialInfo.size;
+        updatedSpecs['Bag Type'] = materialInfo.type;
+        updatedSpecs['Bag Size'] = materialInfo.size;
+        updatedSpecs['bag type'] = materialInfo.type;
+        updatedSpecs['bag size'] = materialInfo.size;
+      } else if (materialType === 'box') {
+        updatedSpecs.boxSize = materialInfo;
+        updatedSpecs['Box Size'] = materialInfo;
+        updatedSpecs['box size'] = materialInfo;
+      }
+      
+      // Apply changes to the order
+      order.specifications = updatedSpecs;
+      newOrders[orderIndex] = order;
+      
+      // Update the local cache immediately
+      queryClient.setQueryData(['/api/orders'], newOrders);
+      
+      // Make the server request
+      updateOfflineOrder(id, { specifications: updatedSpecs });
+      
+      toast({
+        title: `${materialType === 'bag' ? 'Bag' : 'Box'} updated`,
+        description: `Updated ${materialType} information for order #${order.orderNumber}`,
+      });
+    } else {
+      // Handle order item
+      const items = queryClient.getQueryData<OrderItem[]>(['/api/order-items']) || [];
+      const itemIndex = items.findIndex(i => i.id === id);
+      
+      if (itemIndex === -1) return;
+      
+      // Create a deep copy of items to work with
+      const newItems = [...items];
+      const item = {...newItems[itemIndex]};
+      
+      // Create or update specifications object
+      const updatedSpecs: Record<string, any> = {...(item.specifications || {})};
+      
+      if (materialType === 'bag') {
+        // Update in multiple formats to ensure compatibility
+        updatedSpecs.bagType = materialInfo.type;
+        updatedSpecs.bagSize = materialInfo.size;
+        updatedSpecs['Bag Type'] = materialInfo.type;
+        updatedSpecs['Bag Size'] = materialInfo.size;
+        updatedSpecs['bag type'] = materialInfo.type;
+        updatedSpecs['bag size'] = materialInfo.size;
+      } else if (materialType === 'box') {
+        updatedSpecs.boxSize = materialInfo;
+        updatedSpecs['Box Size'] = materialInfo;
+        updatedSpecs['box size'] = materialInfo;
+      }
+      
+      // Apply changes to the item
+      item.specifications = updatedSpecs;
+      newItems[itemIndex] = item;
+      
+      // Update the local cache immediately
+      queryClient.setQueryData(['/api/order-items'], newItems);
+      
+      // Make the server request
+      updateOfflineOrderItem(id, { specifications: updatedSpecs });
+      
+      toast({
+        title: `${materialType === 'bag' ? 'Bag' : 'Box'} updated`,
+        description: `Updated ${materialType} information for item ${item.serialNumber}`,
+      });
+    }
+  };
+  
+  // Handle order click to display details and workshop notes,
+  // including all order items for multi-item orders
+  const handleOrderClick = (order: Order) => {
+    setSelectedOrder(order);
+    setWorkshopNotes(order.notes || '');
+    setArchiveOrder(Boolean(order.archived));
+    
+    // Initialize reseller information
+    setIsReseller(Boolean(order.isReseller));
+    setResellerNickname(order.resellerNickname || '');
+    
+    // Clear selected items when opening a new order dialog
+    setSelectedItems([]);
+    
+    setOrderDetailsOpen(true);
+
+    // Ensure all order items are loaded
+    const orderItems = queryClient.getQueryData<OrderItem[]>(['/api/order-items']) || [];
+    
+    // Check if this order has multiple items
+    const orderItemCount = orderItems.filter(item => item.orderId === order.id).length;
+    console.log(`Order ${order.orderNumber} has ${orderItemCount} items`);
+  };
+  
+  // We'll no longer need this function since we're using the popover directly
+  
+  // Handle saving workshop notes and reseller information
+  const handleSaveNotes = () => {
+    if (selectedOrder) {
+      // Update the cached data immediately for responsiveness
+      queryClient.setQueryData(['/api/orders'], (old: Order[] | undefined) => {
+        if (!old) return old;
+        return old.map(order => {
+          if (order.id === selectedOrder.id) {
+            return {
+              ...order,
+              notes: workshopNotes,
+              isReseller: isReseller,
+              resellerNickname: isReseller ? resellerNickname : null
+            };
+          }
+          return order;
+        });
+      });
+      
+      // Use offline mode to save notes and reseller info - this works in both online and offline modes
+      updateOfflineOrder(selectedOrder.id, { 
+        notes: workshopNotes,
+        isReseller: isReseller,
+        resellerNickname: isReseller ? resellerNickname : null
+      });
+      
+      toast({
+        title: isReseller ? "Reseller Information Updated" : "Notes Updated",
+        description: isReseller ? "Reseller status and nickname have been saved" : "Workshop notes have been saved",
+      });
+    }
+  };
+  
+  // Handle archiving/unarchiving an order
+  const handleArchiveToggle = () => {
+    if (selectedOrder) {
+      const newArchivedState = !selectedOrder.archived;
+      
+      // Update the cached data immediately for responsiveness
+      queryClient.setQueryData(['/api/orders'], (old: Order[] | undefined) => {
+        if (!old) return old;
+        return old.map(order => {
+          if (order.id === selectedOrder.id) {
+            return {
+              ...order,
+              archived: newArchivedState
+            };
+          }
+          return order;
+        });
+      });
+      
+      // Use offline mode to update archive status
+      updateOfflineOrder(selectedOrder.id, { archived: newArchivedState });
+      
+      toast({
+        title: newArchivedState ? "Order Archived" : "Order Restored",
+        description: newArchivedState 
+          ? "Order has been hidden from the main list" 
+          : "Order has been restored to the main list",
+      });
+      
+      setOrderDetailsOpen(false);
+    }
+  };
+  
+  // In flat row system all items are always visible (no collapsing)
+  const toggleOrderCollapse = (orderId: number, event?: React.MouseEvent) => {
+    // Prevent event bubbling if provided
+    if (event) {
+      event.stopPropagation();
+    }
+    
+    // With flat row system, we don't actually toggle state anymore
+    // but we keep the function for compatibility
+    console.log(`Order collapse toggle clicked for order ${orderId}, but ignoring since we're using flat row system`);
+  }
+  
+  // Toggle isolation for a specific order
+  const toggleOrderIsolation = (orderId: number, event?: React.MouseEvent) => {
+    // Prevent event bubbling if provided
+    if (event) {
+      event.stopPropagation();
+    }
+    
+    setIsolatedOrderIds(prevIds => {
+      if (prevIds.includes(orderId)) {
+        // If already isolated, remove it
+        return prevIds.filter(id => id !== orderId);
+      } else {
+        // Otherwise add it to isolated list
+        return [...prevIds, orderId];
+      }
+    });
+  };
+  
+  // Clear all order isolation
+  const clearIsolation = () => {
+    setIsolatedOrderIds([]);
+  };
+  
+  // Extract all specifications for display
+  const formatSpecificationsForDisplay = (order: Order): { [key: string]: string } => {
+    const result: { [key: string]: string } = {};
+    
+    if (order.specifications && typeof order.specifications === 'object') {
+      // Loop through all specs and format them for display
+      Object.entries(order.specifications as Record<string, any>).forEach(([key, value]) => {
+        // Skip null or undefined values
+        if (value === null || value === undefined) return;
+        
+        // Format the key to be more readable
+        const formattedKey = key
+          .replace(/([A-Z])/g, ' $1') // Add space before capitals
+          .replace(/^./, (str) => str.toUpperCase()) // Capitalize first letter
+          .replace(/_/g, ' '); // Replace underscores with spaces
+        
+        // Format the value
+        let formattedValue = value;
+        
+        // If it's a date string, format it
+        if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}/.test(value)) {
+          try {
+            formattedValue = formatDate(value);
+          } catch (e) {
+            // Keep original if date parsing fails
+          }
+        }
+        
+        result[formattedKey] = String(formattedValue);
+      });
+    }
+    
+    return result;
+  };
+  
+  return (
+    <MainLayout className="pb-0 mb-0">
+      {/* Order Details Dialog */}
+      <Dialog open={orderDetailsOpen} onOpenChange={setOrderDetailsOpen}>
+        <DialogContent className="max-w-3xl w-[90vw] max-h-[90vh] overflow-hidden sm:max-h-[85vh] md:max-h-[80vh] p-4 sm:p-5">
+          <div className="absolute right-3 top-3 z-50">
+            <button
+              onClick={() => setOrderDetailsOpen(false)}
+              className="rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none bg-white dark:bg-gray-950 p-1"
+            >
+              <XIcon className="h-4 w-4" />
+              <span className="sr-only">Close</span>
+            </button>
+          </div>
+          <DialogHeader className="pb-2 space-y-1">
+            <DialogTitle className="flex items-center gap-2 pr-6 text-base">
+              <span>Order {selectedOrder?.orderNumber}</span>
+              <span className="text-xs text-muted-foreground">
+                {formatDate(selectedOrder?.orderDate || '')}
+              </span>
+            </DialogTitle>
+            <DialogDescription className="text-xs">
+              Customer and order information
+            </DialogDescription>
+          </DialogHeader>
+          
+          {selectedOrder && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-2 overflow-y-auto max-h-[calc(80vh-160px)]">
+              {/* Customer Information */}
+              <div className="space-y-4">
+                <h3 className="text-base font-semibold flex items-center gap-1.5">
+                  <User className="h-4 w-4" />
+                  Customer Information
+                </h3>
+                <div className="grid grid-cols-1 gap-3 rounded-md border p-4 bg-[#FCFCFB]">
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <strong className="text-sm text-muted-foreground">Name:</strong>
+                      <div>{selectedOrder.customerName}</div>
+                    </div>
+                    <Button 
+                      variant="outline" 
+                      size="icon" 
+                      className="h-8 w-8"
+                      onClick={() => {
+                        navigator.clipboard.writeText(selectedOrder.customerName || '');
+                        toast({
+                          title: "Copied to clipboard",
+                          description: "Customer name has been copied",
+                          duration: 2000
+                        });
+                      }}
+                    >
+                      <Copy className="h-4 w-4" />
+                    </Button>
+                  </div>
+                  
+                  {selectedOrder.customerEmail && (
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <strong className="text-sm text-muted-foreground">Email:</strong>
+                        <div className="flex items-center gap-1">
+                          <Mail className="h-4 w-4 text-muted-foreground" />
+                          <a href={`mailto:${selectedOrder.customerEmail}`} className="text-blue-600 hover:underline">
+                            {selectedOrder.customerEmail}
+                          </a>
+                        </div>
+                      </div>
+                      <Button 
+                        variant="outline" 
+                        size="icon" 
+                        className="h-8 w-8"
+                        onClick={() => {
+                          navigator.clipboard.writeText(selectedOrder.customerEmail || '');
+                          toast({
+                            title: "Copied to clipboard",
+                            description: "Email has been copied",
+                            duration: 2000
+                          });
+                        }}
+                      >
+                        <Copy className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  )}
+                  
+                  {selectedOrder.customerPhone && (
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <strong className="text-sm text-muted-foreground">Phone:</strong>
+                        <div className="flex items-center gap-1">
+                          <Phone className="h-4 w-4 text-muted-foreground" />
+                          <a href={`tel:${selectedOrder.customerPhone}`} className="text-blue-600 hover:underline">
+                            {selectedOrder.customerPhone}
+                          </a>
+                        </div>
+                      </div>
+                      <Button 
+                        variant="outline" 
+                        size="icon" 
+                        className="h-8 w-8"
+                        onClick={() => {
+                          navigator.clipboard.writeText(selectedOrder.customerPhone || '');
+                          toast({
+                            title: "Copied to clipboard",
+                            description: "Phone number has been copied",
+                            duration: 2000
+                          });
+                        }}
+                      >
+                        <Copy className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  )}
+                  
+                  {selectedOrder.customerAddress && (
+                    <>
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <strong className="text-sm text-muted-foreground">Address:</strong>
+                          <div>{selectedOrder.customerAddress}</div>
+                        </div>
+                        <Button 
+                          variant="outline" 
+                          size="icon" 
+                          className="h-8 w-8"
+                          onClick={() => {
+                            navigator.clipboard.writeText(selectedOrder.customerAddress || '');
+                            toast({
+                              title: "Copied to clipboard",
+                              description: "Address has been copied",
+                              duration: 2000
+                            });
+                          }}
+                        >
+                          <Copy className="h-4 w-4" />
+                        </Button>
+                      </div>
+                      
+                      {/* Waiting time indicator */}
+                      {selectedOrder.orderDate && (
+                        <div className="mt-1 text-xs font-medium px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 w-fit">
+                          <Clock className="inline-block h-3 w-3 mr-1" />
+                          Waiting {getDaysSinceOrder(selectedOrder.orderDate)} days
+                        </div>
+                      )}
+
+                      <div className="mt-2 mb-2 relative h-[120px] w-full overflow-hidden rounded-md border bg-gray-100">
+                        <a 
+                          href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
+                            [
+                              selectedOrder.customerAddress,
+                              selectedOrder.customerCity,
+                              selectedOrder.customerState,
+                              selectedOrder.customerCountry,
+                              selectedOrder.customerZip
+                            ].filter(Boolean).join(', ')
+                          )}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="absolute inset-0 flex flex-col items-center justify-center text-center p-3"
+                        >
+                          <MapPin className="h-6 w-6 mb-1 text-[#1F5B61]" />
+                          <span className="text-xs text-[#1F5B61] font-medium">Click to view customer location on Google Maps</span>
+                          <span className="text-[10px] text-gray-600 mt-1 max-w-[90%] line-clamp-3">
+                            {[
+                              selectedOrder.customerAddress,
+                              selectedOrder.customerCity,
+                              selectedOrder.customerState,
+                              selectedOrder.customerZip,
+                              selectedOrder.customerCountry
+                            ].filter(Boolean).join(', ')}
+                          </span>
+                        </a>
+                      </div>
+                    </>
+                  )}
+                  
+                  {(selectedOrder.customerCity || selectedOrder.customerState || selectedOrder.customerZip) && (
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <strong className="text-sm text-muted-foreground">City/State/Zip:</strong>
+                        <div>
+                          {[
+                            selectedOrder.customerCity,
+                            selectedOrder.customerState,
+                            selectedOrder.customerZip
+                          ].filter(Boolean).join(', ')}
+                        </div>
+                      </div>
+                      <Button 
+                        variant="outline" 
+                        size="icon" 
+                        className="h-8 w-8"
+                        onClick={() => {
+                          const cityStateZip = [
+                            selectedOrder.customerCity,
+                            selectedOrder.customerState,
+                            selectedOrder.customerZip
+                          ].filter(Boolean).join(', ');
+                          navigator.clipboard.writeText(cityStateZip);
+                          toast({
+                            title: "Copied to clipboard",
+                            description: "City/State/Zip has been copied",
+                            duration: 2000
+                          });
+                        }}
+                      >
+                        <Copy className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  )}
+                  
+                  {selectedOrder.customerCountry && (
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <strong className="text-sm text-muted-foreground">Country:</strong>
+                        <div>{selectedOrder.customerCountry}</div>
+                      </div>
+                      <Button 
+                        variant="outline" 
+                        size="icon" 
+                        className="h-8 w-8"
+                        onClick={() => {
+                          navigator.clipboard.writeText(selectedOrder.customerCountry || '');
+                          toast({
+                            title: "Copied to clipboard",
+                            description: "Country has been copied",
+                            duration: 2000
+                          });
+                        }}
+                      >
+                        <Copy className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  )}
+                  
+                  {selectedOrder.shopifyOrderId && (
+                    <div className="flex justify-between items-start mt-3 pt-3 border-t border-gray-200">
+                      <div>
+                        <strong className="text-sm text-muted-foreground">Shopify Order:</strong>
+                        <div className="flex items-center gap-1">
+                          <ExternalLink className="h-4 w-4 text-muted-foreground" />
+                          <a 
+                            href={`https://stonewhistle.myshopify.com/admin/orders/${selectedOrder.shopifyOrderId}`} 
+                            target="_blank" 
+                            rel="noopener noreferrer"
+                            className="text-blue-600 hover:underline"
+                          >
+                            View in Shopify
+                          </a>
+                        </div>
+                      </div>
+                      <Button 
+                        variant="outline" 
+                        size="icon" 
+                        className="h-8 w-8"
+                        onClick={() => {
+                          navigator.clipboard.writeText(`https://stonewhistle.myshopify.com/admin/orders/${selectedOrder.shopifyOrderId}`);
+                          toast({
+                            title: "Copied to clipboard",
+                            description: "Shopify order URL has been copied",
+                            duration: 2000
+                          });
+                        }}
+                      >
+                        <Copy className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              </div>
+              
+              {/* Instrument Specifications */}
+              <div className="space-y-4">
+                <h3 className="text-base font-semibold flex items-center gap-1.5">
+                  <Package className="h-4 w-4" />
+                  Instrument Details
+                </h3>
+                
+                {/* Order items section for multi-item orders */}
+                {(() => {
+                  const orderItems = queryClient.getQueryData<OrderItem[]>(['/api/order-items']) || [];
+                  const items = orderItems.filter(item => item.orderId === selectedOrder.id);
+                  
+                  if (items.length > 1) {
+                    return (
+                      <div className="rounded-md border mb-4 p-4 bg-[#FCFCFB]">
+                        <div className="flex justify-between items-center mb-2">
+                          <h4 className="font-medium">Order Items ({items.length})</h4>
+                          <div className="flex gap-2">
+                            <Button 
+                              size="sm" 
+                              variant="outline"
+                              onClick={() => {
+                                const orderItems = items.filter(item => !selectedItems.some(i => i.id === item.id));
+                                if (orderItems.length > 0) {
+                                  // Some items from this order are not selected, so select them all
+                                  setSelectedItems(prev => [...prev, ...orderItems]);
+                                } else {
+                                  // All items are already selected, so deselect items from this order
+                                  setSelectedItems(prev => prev.filter(i => i.orderId !== selectedOrder.id));
+                                }
+                              }}
+                              className="h-7 text-xs"
+                            >
+                              {items.every(item => selectedItems.some(i => i.id === item.id)) 
+                                ? "Deselect All" 
+                                : "Select All"}
+                            </Button>
+                            {selectedItems.length > 0 && (
+                              <Button 
+                                size="sm" 
+                                onClick={() => setJointBoxDialogOpen(true)}
+                                className="h-7 text-xs bg-[#1F5B61] hover:bg-[#174349] text-white"
+                              >
+                                <Package className="h-3 w-3 mr-1" />
+                                Box {selectedItems.length} Selected
+                              </Button>
+                            )}
+                          </div>
+                        </div>
+                        <div className="max-h-60 overflow-y-auto">
+                          {items.map((item, index) => {
+                            const type = getTypeFromSpecifications(item);
+                            const color = getColorFromSpecifications(item);
+                            const tuning = getNoteTuningFromSpecifications(item);
+                            const frequency = item.specifications?.frequency || '';
+                            
+                            return (
+                              <div key={item.id} className={`p-2 mb-2 rounded flex ${index % 2 === 0 ? 'bg-gray-50' : 'bg-white'}`}>
+                                <div className="mr-2 flex items-center">
+                                  <Checkbox 
+                                    id={`select-item-${item.id}`} 
+                                    checked={selectedItems.some(i => i.id === item.id)}
+                                    onCheckedChange={(checked) => {
+                                      if (checked) {
+                                        setSelectedItems(prev => [...prev, item]);
+                                      } else {
+                                        setSelectedItems(prev => prev.filter(i => i.id !== item.id));
+                                      }
+                                    }}
+                                    className="h-4 w-4" /* Smaller checkbox */
+                                  />
+                                </div>
+                                <div className="flex-1">
+                                  <div className="flex justify-between items-center">
+                                    <div className="font-medium">{item.serialNumber}</div>
+                                    <div className="flex space-x-1">
+                                      <div style={{ width: '75px' }} className="text-center bg-gray-100 rounded px-1 py-0.5 text-xs">
+                                        <span className="font-medium">{type || item.itemType}</span>
+                                      </div>
+                                      {tuning && (
+                                        <div style={{ width: '55px' }} className="text-center bg-gray-100 rounded px-1 py-0.5 text-xs">
+                                          <span className="font-medium">{tuning}</span>
+                                        </div>
+                                      )}
+                                      {frequency && (
+                                        <div style={{ width: '45px' }} className="text-center bg-gray-100 rounded px-1 py-0.5 text-xs">
+                                          <span className="font-medium">{frequency}</span>
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
+                                  
+                                  {/* Label Preview */}
+                                  <div className={`mt-2 border border-dashed ${selectedItems.some(i => i.id === item.id) ? 'border-blue-400 bg-blue-50' : 'border-gray-300 bg-gray-50'} p-2 rounded-md`}>
+                                    <div className={`${selectedItems.some(i => i.id === item.id) ? 'text-sm' : 'text-xs'} font-bold text-center mb-1`}>
+                                      {selectedItems.some(i => i.id === item.id) ? '📋 LABEL TEMPLATE 📋' : 'Label Preview:'}
+                                    </div>
+                                    <div className={`${selectedItems.some(i => i.id === item.id) ? 'text-sm' : 'text-xs'} leading-tight bg-white p-3 border border-gray-300 rounded shadow-sm`}>
+                                      <div className="flex justify-between items-center mb-1.5">
+                                        <span className="flex-1"><span className="font-semibold">Customer:</span> {selectedOrder?.customerName}</span>
+                                        <span className="text-right flex-1"><span className="font-semibold">Order:</span> {selectedOrder?.orderNumber}</span>
+                                      </div>
+                                      <div className="flex justify-between mb-1.5">
+                                        <span><span className="font-semibold">Type:</span> {type || item.itemType}</span>
+                                        <span><span className="font-semibold">Color:</span> {color || '-'}</span>
+                                      </div>
+                                      <div className="flex justify-between">
+                                        <span><span className="font-semibold">Tuning:</span> {tuning || '-'}</span>
+                                        <span><span className="font-semibold">Freq:</span> {frequency || '-'}</span>
+                                      </div>
+                                      {selectedItems.some(i => i.id === item.id) && (
+                                        <div className="mt-2 pt-2 border-t border-gray-200 text-center text-gray-600">
+                                          Serial: {item.serialNumber}
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  }
+                  return null;
+                })()}
+                
+                {/* Scrollable Instrument Labels */}
+                <div className="space-y-3 mb-4">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-base font-semibold flex items-center gap-1.5">
+                      <Package className="h-4 w-4" />
+                      Instrument Labels Preview
+                    </h3>
+                    <span className="text-xs text-gray-500">{selectedItems.length} item{selectedItems.length !== 1 ? 's' : ''} selected</span>
+                  </div>
+                  
+                  <div className="overflow-y-auto max-h-[200px] border rounded-md">
+                    {selectedItems.length > 0 ? (
+                      <div className="divide-y">
+                        {selectedItems.map((item, index) => (
+                          <div key={item.id} className="p-3 hover:bg-gray-50">
+                            <div className="flex justify-between items-start mb-2">
+                              <div className="flex items-start gap-2">
+                                <Checkbox 
+                                  id={`select-item-${item.id}`}
+                                  className="mt-1"
+                                  checked={selectedBoxItems.includes(item.id)}
+                                  onCheckedChange={(checked) => {
+                                    if (checked) {
+                                      setSelectedBoxItems(prev => [...prev, item.id]);
+                                    } else {
+                                      setSelectedBoxItems(prev => prev.filter(id => id !== item.id));
+                                    }
+                                  }}
+                                />
+                                <div className="space-y-0.5">
+                                  <div className="font-medium text-sm flex items-center">
+                                    <span className="mr-1.5 inline-block h-2 w-2 rounded-full bg-[#015a6c]"></span>
+                                    {item.serialNumber}
+                                  </div>
+                                  <div className="text-xs text-gray-500">
+                                    Type: {item.itemType || getTypeFromSpecifications(item)}
+                                  </div>
+                                </div>
+                              </div>
+                              <div className="flex gap-1">
+                                <div className="text-xs px-1.5 py-0.5 bg-gray-100 rounded">
+                                  {getNoteTuningFromSpecifications(item) || '-'}
+                                </div>
+                                <div className="text-xs px-1.5 py-0.5 bg-gray-100 rounded">
+                                  {item.specifications?.frequency || '-'}
+                                </div>
+                              </div>
+                            </div>
+                            
+                            <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+                              <div className="flex justify-between">
+                                <span className="text-gray-600">Color:</span>
+                                <span>{getColorFromSpecifications(item) || '-'}</span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span className="text-gray-600">Box:</span>
+                                <span>{getBoxSize(item) || '-'}</span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span className="text-gray-600">Tuning:</span>
+                                <span>{getNoteTuningFromSpecifications(item) || '-'}</span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span className="text-gray-600">Frequency:</span>
+                                <span>{item.specifications?.frequency || '-'}</span>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="text-center py-8 text-gray-500">
+                        <Package className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                        <p>Select item(s) to display label preview</p>
+                      </div>
+                    )}
+                  </div>
+                  
+                  <div className="grid grid-cols-2 gap-2 mt-2">
+                    <div className="rounded-md border p-3 bg-gray-50">
+                      <div className="text-sm font-medium text-gray-700 mb-1">Order Summary</div>
+                      <div className="space-y-1 text-xs">
+                        <div className="flex justify-between">
+                          <span className="text-gray-500">Order Number:</span>
+                          <span className="font-medium">{selectedOrder?.orderNumber}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-gray-500">Customer:</span>
+                          <span className="font-medium truncate max-w-[120px]">{selectedOrder?.customerName}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-gray-500">Status:</span>
+                          <span className="font-medium capitalize">{selectedOrder?.status}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-gray-500">Date:</span>
+                          <span className="font-medium">{selectedOrder?.orderDate && new Date(selectedOrder.orderDate).toLocaleDateString()}</span>
+                        </div>
+                      </div>
+                    </div>
+                    
+                    <div className="rounded-md border p-3 bg-gray-50">
+                      <div className="text-sm font-medium text-gray-700 mb-1">Quick Actions</div>
+                      <div className="grid grid-cols-2 gap-1 mt-2">
+                        <Button 
+                          variant="outline" 
+                          size="sm" 
+                          className="h-8 text-xs"
+                          disabled={selectedBoxItems.length === 0}
+                        >
+                          <Printer className="h-3.5 w-3.5 mr-1" />
+                          Print Labels ({selectedBoxItems.length})
+                        </Button>
+                        <Button 
+                          variant="outline" 
+                          size="sm" 
+                          className="h-8 text-xs"
+                          disabled={selectedBoxItems.length === 0}
+                          onClick={() => {
+                            if (selectedBoxItems.length > 0) {
+                              setJointBoxDialogOpen(true);
+                            }
+                          }}
+                        >
+                          <Package className="h-3.5 w-3.5 mr-1" />
+                          Box Items ({selectedBoxItems.length})
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+              </div>
+              
+              {/* Notes Section */}
+              <div className="col-span-full">
+                {/* Display Shopify Notes if available */}
+                {selectedOrder.notes && selectedOrder.notes.trim() !== '' && (
+                  <div className="mb-4">
+                    <Label className="text-sm flex items-center mb-1">
+                      <span className="mr-1.5 inline-block h-3 w-3 rounded-full bg-red-500"></span>
+                      Customer Notes from Shopify
+                    </Label>
+                    <div className="rounded-md border p-3 bg-[#FEF2F2] text-[#7F1D1D] whitespace-pre-wrap">
+                      {selectedOrder.notes}
+                    </div>
+                  </div>
+                )}
+                
+                {/* Workshop Notes */}
+                <div className="space-y-1 col-span-full">
+                  <Label htmlFor="workshopNotes" className="text-sm flex items-center">
+                    <span className="mr-1.5 inline-block h-3 w-3 rounded-full bg-[#015a6c]"></span>
+                    Workshop Notes
+                  </Label>
+                  <Textarea 
+                    id="workshopNotes" 
+                    placeholder="Add workshop notes, internal remarks, or special instructions here..." 
+                    className="min-h-[80px]"
+                    value={workshopNotes}
+                    onChange={(e) => setWorkshopNotes(e.target.value)}
+                  />
+                </div>
+              </div>
+              
+              {/* Reseller Settings */}
+              <div className="flex items-center justify-between gap-3 col-span-full mt-1 py-2 border-t">
+                <div className="flex items-center space-x-2">
+                  <Switch 
+                    id="reseller" 
+                    checked={isReseller}
+                    onCheckedChange={setIsReseller}
+                  />
+                  <Label htmlFor="reseller" className="cursor-pointer text-sm font-medium">
+                    {isReseller ? 'Reseller Order' : 'Mark as Reseller Order'}
+                  </Label>
+                </div>
+                {isReseller && (
+                  <div className="flex-1 max-w-[200px]">
+                    <Input
+                      placeholder="Reseller nickname"
+                      value={resellerNickname}
+                      onChange={(e) => setResellerNickname(e.target.value)}
+                      className="h-8 text-sm"
+                    />
+                  </div>
+                )}
+                <div className="text-xs text-muted-foreground max-w-[180px]">
+                  {isReseller ? 
+                    'This order will be highlighted and display the reseller nickname' : 
+                    'Mark reseller orders for better visibility'}
+                </div>
+              </div>
+              
+              {/* Archive Toggle */}
+              <div className="flex items-center justify-between gap-3 col-span-full mt-1 py-2 border-t">
+                <div className="flex items-center space-x-2">
+                  <Switch 
+                    id="archive" 
+                    checked={archiveOrder}
+                    onCheckedChange={setArchiveOrder}
+                  />
+                  <Label htmlFor="archive" className="cursor-pointer text-sm font-medium">
+                    {archiveOrder ? 'Order Archived (Hidden)' : 'Archive This Order'}
+                  </Label>
+                </div>
+                <div className="text-xs text-muted-foreground max-w-[180px]">
+                  {archiveOrder ? 
+                    'This order will be hidden from the main list' : 
+                    'Archived orders are hidden from the main list but can be restored later'}
+                </div>
+              </div>
+            </div>
+          )}
+          
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setOrderDetailsOpen(false)}>
+              Cancel
+            </Button>
+            <Button 
+              variant="default"
+              onClick={() => {
+                handleSaveNotes();
+                if (archiveOrder !== Boolean(selectedOrder?.archived)) {
+                  handleArchiveToggle();
+                }
+                setOrderDetailsOpen(false);
+              }}
+              className="bg-[#1F5B61] hover:bg-[#174349] text-white"
+            >
+              Save Changes
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      
+      {/* Order Range Settings Dialog */}
+      <Dialog open={showOrderRangeSettings} onOpenChange={setShowOrderRangeSettings}>
+        <DialogContent className="max-w-md w-[90vw] p-4 sm:p-5">
+          <div className="absolute right-3 top-3 z-50">
+            <button
+              onClick={() => setShowOrderRangeSettings(false)}
+              className="rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none bg-white dark:bg-gray-950 p-1"
+            >
+              <XIcon className="h-4 w-4" />
+              <span className="sr-only">Close</span>
+            </button>
+          </div>
+          <DialogHeader className="pb-2 space-y-1">
+            <DialogTitle className="text-base">Order Number Range Settings</DialogTitle>
+            <DialogDescription className="text-xs">
+              Filter orders by their order number range
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="grid gap-3 py-3">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label htmlFor="minOrderNumber" className="text-sm">Minimum Order #</Label>
+                <Input
+                  id="minOrderNumber"
+                  placeholder="e.g., 1485"
+                  value={minOrderNumber}
+                  onChange={(e) => setMinOrderNumber(e.target.value)}
+                  className="h-8 text-sm"
+                />
+                <p className="text-xs text-muted-foreground">Only show orders above this number</p>
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="maxOrderNumber" className="text-sm">Maximum Order #</Label>
+                <Input
+                  id="maxOrderNumber"
+                  placeholder="e.g., 1600"
+                  value={maxOrderNumber}
+                  onChange={(e) => setMaxOrderNumber(e.target.value)}
+                  className="h-8 text-sm"
+                />
+                <p className="text-xs text-muted-foreground">Leave empty to show all newer orders</p>
+              </div>
+            </div>
+          </div>
+          
+          <DialogFooter>
+            <Button 
+              variant="outline" 
+              onClick={() => {
+                setMinOrderNumber('');
+                setMaxOrderNumber('');
+              }}
+            >
+              Reset
+            </Button>
+            <Button 
+              onClick={() => setShowOrderRangeSettings(false)}
+              className="bg-[#1F5B61] hover:bg-[#174349] text-white"
+            >
+              Apply Filters
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      
+      {/* Joint Box Assignment Dialog */}
+      <Dialog open={jointBoxDialogOpen} onOpenChange={setJointBoxDialogOpen}>
+        <DialogContent className="max-w-md w-[90vw] p-4 sm:p-5">
+          <div className="absolute right-3 top-3 z-50">
+            <button
+              onClick={() => setJointBoxDialogOpen(false)}
+              className="rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none bg-white dark:bg-gray-950 p-1"
+            >
+              <XIcon className="h-4 w-4" />
+              <span className="sr-only">Close</span>
+            </button>
+          </div>
+          <DialogHeader className="pb-2 space-y-1">
+            <DialogTitle className="text-base">Assign Joint Box</DialogTitle>
+            <DialogDescription className="text-xs">
+              Assign a shared box for {selectedItems.length} selected flutes
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="grid gap-3 py-3">
+            <div className="space-y-1">
+              <Label className="text-sm">Selected Items</Label>
+              <div className="max-h-40 overflow-y-auto border rounded-md p-2 bg-gray-50">
+                {selectedItems.map(item => (
+                  <div key={item.id} className="flex items-center py-0.5 border-b last:border-0">
+                    <div className="font-medium text-sm">{item.serialNumber}</div>
+                    <div className="ml-2 text-xs text-gray-500">
+                      {getTypeFromSpecifications(item)} {getNoteTuningFromSpecifications(item)}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            
+            <div className="space-y-1">
+              <Label htmlFor="boxSize" className="text-sm">Select Box Size</Label>
+              <div className="grid grid-cols-3 gap-2">
+                {boxSizes.map(size => (
+                  <Button
+                    key={size}
+                    type="button"
+                    variant={selectedCustomBox === size ? "default" : "outline"}
+                    className={`text-sm h-8 ${selectedCustomBox === size ? "bg-[#1F5B61] text-white" : ""}`}
+                    onClick={() => setSelectedCustomBox(size)}
+                  >
+                    {size}
+                  </Button>
+                ))}
+                <Button
+                  type="button"
+                  variant={selectedCustomBox === 'custom' ? "default" : "outline"}
+                  className={`text-sm h-8 ${selectedCustomBox === 'custom' ? "bg-[#1F5B61] text-white" : ""}`}
+                  onClick={() => setSelectedCustomBox('custom')}
+                >
+                  Custom
+                </Button>
+              </div>
+            </div>
+            
+            {selectedCustomBox === 'custom' && (
+              <div className="space-y-1">
+                <Label htmlFor="customBoxSize" className="text-sm">Custom Box Size</Label>
+                <Input
+                  id="customBoxSize"
+                  value={customBoxSize}
+                  onChange={(e) => setCustomBoxSize(e.target.value)}
+                  placeholder="e.g. 25x25x25"
+                  className="h-8 text-sm"
+                />
+              </div>
+            )}
+          </div>
+          
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setJointBoxDialogOpen(false);
+                setSelectedCustomBox('');
+                setCustomBoxSize('');
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              disabled={
+                selectedItems.length === 0 || 
+                (selectedCustomBox === 'custom' && !customBoxSize) ||
+                (!selectedCustomBox)
+              }
+              onClick={() => {
+                const boxSize = selectedCustomBox === 'custom' ? customBoxSize : selectedCustomBox;
+                updateCustomBoxMutation.mutate({
+                  itemIds: selectedItems.map(item => item.id),
+                  customBoxSize: boxSize
+                });
+                setJointBoxDialogOpen(false);
+              }}
+              className="bg-[#1F5B61] hover:bg-[#174349] text-white"
+            >
+              Apply Custom Box
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      
+      <div className="flex justify-between items-center mb-1">
+        <div className="flex items-center gap-3">
+          {unfulfilledOrdersCount > 0 && (
+            <div className="flex items-center gap-2">
+              <span className="inline-flex items-center justify-center px-2 py-0.5 text-xs font-semibold bg-[#015a6c] text-white rounded" title="Total orders">
+                <FileText className="h-3 w-3 mr-1" />
+                {unfulfilledOrdersCount}
+              </span>
+              <span className="inline-flex items-center justify-center px-2 py-0.5 text-xs font-semibold bg-[#C26E50] text-white rounded" title="Items to build">
+                <Package className="h-3 w-3 mr-1" />
+                {itemsCount}
+              </span>
+              
+              {/* Current average waiting time */}
+              {allOrderItems.length > 0 && (
+                <span className="inline-flex items-center justify-center px-2 py-0.5 text-xs font-semibold bg-gray-700 text-white rounded" title="Average wait time">
+                  <Clock className="h-3 w-3 mr-1" />
+                  {Math.round(
+                    allOrderItems
+                      .filter(item => !isStatusComplete(item, 'shipping'))
+                      .reduce((sum, item) => sum + getItemWaitingDays(item), 0) /
+                    allOrderItems.filter(item => !isStatusComplete(item, 'shipping')).length || 0
+                  )}d
+                </span>
+              )}
+              
+              {/* Non-working periods indicator */}
+              {nonWorkingPeriods.length > 0 && (
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <button className="inline-flex items-center justify-center gap-1 px-2 py-0.5 text-xs font-semibold bg-purple-500 text-white rounded hover:bg-purple-600" title="Non-working periods">
+                      <Calendar className="h-3 w-3 mr-1" />{nonWorkingPeriods.length}
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-80">
+                    <div className="space-y-2">
+                      <div className="font-medium">Non-Working Periods</div>
+                      <div className="text-muted-foreground text-sm">
+                        These periods are excluded from waiting time calculations.
+                      </div>
+                      <div className="max-h-40 overflow-y-auto">
+                        {nonWorkingPeriods.map((period, index) => (
+                          <div key={index} className="flex justify-between items-center p-2 border-b">
+                            <div>
+                              <div className="font-medium">{formatDate(period.start)} - {formatDate(period.end)}</div>
+                              <div className="text-sm text-muted-foreground">{period.reason}</div>
+                            </div>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => {
+                                setNonWorkingPeriods(prev => prev.filter((_, i) => i !== index));
+                              }}
+                            >
+                              <Trash className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                      <Button 
+                        size="sm" 
+                        className="w-full"
+                        onClick={() => setShowNonWorkingForm(true)}
+                      >
+                        <Plus className="h-4 w-4 mr-2" /> Add Non-Working Period
+                      </Button>
+                    </div>
+                  </PopoverContent>
+                </Popover>
+              )}
+            </div>
+          )}
+        </div>
+        
+        <div className="flex gap-2 items-center">
+          {/* Order isolation indicator */}
+          {hasIsolatedOrders && (
+            <div className="isolation-indicator">
+              <span>
+                <strong>{isolatedOrderIds.length}</strong> order{isolatedOrderIds.length !== 1 ? 's' : ''} isolated
+              </span>
+              <button 
+                onClick={clearIsolation}
+                className="isolation-clear-button"
+              >
+                <XIcon className="h-3 w-3" />
+                Clear
+              </button>
+            </div>
+          )}
+          
+          <div className="relative w-64">
+            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-gray-500" />
+            <Input
+              placeholder="Search orders..."
+              className="pl-8 py-2"
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+            />
+          </div>
+
+          {/* Add Non-Working Period button - more compact */}
+          <Button 
+            variant="outline" 
+            onClick={() => setShowNonWorkingForm(true)}
+            className="text-sm flex items-center"
+            title="Track Non-Working Period"
+          >
+            <Calendar className="h-4 w-4" />
+          </Button>
+
+          <div className="flex items-center mr-2 bg-gray-100 px-2 py-1 rounded-md" title={newestFirst ? "Showing newest orders first" : "Showing oldest orders first"}>
+            <Switch
+              id="sortOrder"
+              checked={newestFirst}
+              onCheckedChange={setNewestFirst}
+            />
+            <Label htmlFor="sortOrder" className="ml-1 text-xs">
+              {newestFirst ? "New→Old" : "Old→New"}
+            </Label>
+          </div>
+          <Button 
+            variant="outline" 
+            onClick={() => setShowOrderRangeSettings(true)}
+            className="text-sm flex items-center"
+            title="Set Order Number Range"
+          >
+            <Filter className="h-4 w-4" />
+          </Button>
+          <Button 
+            variant="default" 
+            onClick={async () => {
+              // First sync with Shopify to get any new orders
+              toast({
+                title: "Syncing with Shopify...",
+                description: "Checking for new orders",
+              });
+              
+              try {
+                // Import from Shopify
+                const result = await syncShopifyOrders();
+                
+                if (result.success) {
+                  // Invalidate queries to refresh local data
+                  queryClient.invalidateQueries({ queryKey: ['/api/orders'] });
+                  queryClient.invalidateQueries({ queryKey: ['/api/order-items'] });
+                  queryClient.invalidateQueries({ queryKey: ['/api/materials'] });
+                  
+                  // Show success message
+                  toast({
+                    title: "Sync Complete",
+                    description: result.importedCount 
+                      ? `Imported ${result.importedCount} new order(s) from Shopify` 
+                      : "All data updated. No new orders from Shopify",
+                  });
+                } else {
+                  // If Shopify sync fails, still refresh local data
+                  queryClient.invalidateQueries({ queryKey: ['/api/orders'] });
+                  queryClient.invalidateQueries({ queryKey: ['/api/order-items'] });
+                  queryClient.invalidateQueries({ queryKey: ['/api/materials'] });
+                  
+                  toast({
+                    title: "Sync Partially Failed",
+                    description: "Data updated, but Shopify import failed: " + result.message,
+                    variant: "destructive",
+                  });
+                }
+              } catch (error) {
+                // If there's an error, still refresh local data
+                queryClient.invalidateQueries({ queryKey: ['/api/orders'] });
+                queryClient.invalidateQueries({ queryKey: ['/api/order-items'] });
+                queryClient.invalidateQueries({ queryKey: ['/api/materials'] });
+                
+                toast({
+                  title: "Sync Error",
+                  description: "Data updated but could not connect to Shopify.",
+                  variant: "destructive",
+                });
+              }
+            }}
+            className="bg-[#C26E50] hover:bg-[#B05E40] text-white font-condensed sync-button"
+            disabled={!isOnline}
+          >
+            <RefreshCw className="h-4 w-4 mr-2" />
+            SYNC
+          </Button>
+        </div>
+      </div>
+      
+      {/* Non-Working Period Dialog */}
+      <Dialog open={showNonWorkingForm} onOpenChange={setShowNonWorkingForm}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Add Non-Working Period</DialogTitle>
+            <DialogDescription>
+              Track periods when you're not working (holidays, ceremonies, travel) to get more accurate waiting time calculations.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid gap-2">
+              <Label htmlFor="start-date">Start Date</Label>
+              <Input
+                id="start-date"
+                type="date"
+                value={newNonWorkingPeriod.start}
+                onChange={(e) => setNewNonWorkingPeriod(prev => ({
+                  ...prev,
+                  start: e.target.value
+                }))}
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="end-date">End Date</Label>
+              <Input
+                id="end-date"
+                type="date"
+                value={newNonWorkingPeriod.end}
+                onChange={(e) => setNewNonWorkingPeriod(prev => ({
+                  ...prev,
+                  end: e.target.value
+                }))}
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="reason">Reason</Label>
+              <Input
+                id="reason"
+                placeholder="e.g., Holiday, Travel, Ceremony, etc."
+                value={newNonWorkingPeriod.reason}
+                onChange={(e) => setNewNonWorkingPeriod(prev => ({
+                  ...prev,
+                  reason: e.target.value
+                }))}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button 
+              type="submit" 
+              onClick={() => {
+                if (!newNonWorkingPeriod.start || !newNonWorkingPeriod.end) {
+                  toast({
+                    title: "Missing dates",
+                    description: "Please provide both start and end dates",
+                    variant: "destructive"
+                  });
+                  return;
+                }
+                
+                // Add the new period
+                setNonWorkingPeriods(prev => [...prev, {
+                  start: newNonWorkingPeriod.start,
+                  end: newNonWorkingPeriod.end,
+                  reason: newNonWorkingPeriod.reason || 'Unspecified'
+                }]);
+                
+                // Reset form
+                setNewNonWorkingPeriod({
+                  start: format(new Date(), 'yyyy-MM-dd'),
+                  end: format(addDays(new Date(), 7), 'yyyy-MM-dd'),
+                  reason: ''
+                });
+                
+                // Close dialog
+                setShowNonWorkingForm(false);
+                
+                toast({
+                  title: "Non-working period added",
+                  description: "The waiting time calculations will now exclude this period."
+                });
+              }}
+            >
+              Add Period
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      
+      <div className="rounded-md border bg-white sticky-header-container mt-0 mb-0 pb-0">
+        <Table className="sticky-header-table mb-0 pb-0">
+          <TableHeader>
+            <TableRow className="divide-x divide-gray-300 border-b-2 border-white h-12">
+              <TableHead className="sticky-header sticky left-0 top-0 bg-[#015a6c] text-white p-1 whitespace-nowrap min-w-[50px] z-50 font-condensed text-center">
+                <span className="text-white font-bold">Order</span>
+              </TableHead>
+              <TableHead className="sticky-header bg-[#164146] text-white p-1 whitespace-nowrap min-w-[35px] z-40 text-center font-condensed">
+                <span className="sr-only">Isolate</span>
+                <Filter className="h-4 w-4 inline-block text-white" />
+              </TableHead>
+              <TableHead className="sticky-header bg-[#164146] text-white p-1 whitespace-nowrap min-w-[55px] z-40 font-condensed text-center">
+                <span className="text-white font-bold">Waiting</span>
+              </TableHead>
+              <TableHead className="sticky-header bg-[#164146] text-white p-1 whitespace-nowrap min-w-[120px] z-40 font-condensed text-center">
+                <span className="text-white font-bold">Type</span>
+              </TableHead>
+              <TableHead className="sticky-header bg-[#164146] text-white p-1 whitespace-nowrap min-w-[45px] z-40 font-condensed text-center">
+                <span className="text-white font-bold">Color</span>
+              </TableHead>
+              {statusColumns.map(col => (
+                <TableHead key={col.id} className="sticky-header text-center bg-[#164146] text-white p-1 whitespace-nowrap min-w-[28px] z-40 font-condensed">
+                  <span className="text-white font-bold">{col.label}</span>
+                </TableHead>
+              ))}
+            </TableRow>
+          </TableHeader>
+          <TableBody className="divide-y divide-gray-300">
+            {isLoadingOrders || isLoadingItems ? (
+              <TableRow>
+                <TableCell colSpan={20} className="text-center py-10">
+                  Loading orders...
+                </TableCell>
+              </TableRow>
+            ) : filteredOrders.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={20} className="text-center py-10">
+                  No orders found
+                </TableCell>
+              </TableRow>
+            ) : (
+              filteredOrders.map((order) => {
+                const orderItems = itemsByOrder[order.id] || [];
+                
+                // If there are no items, show the order in a single row
+                if (orderItems.length === 0) {
+                  return (
+                    <TableRow 
+                      key={order.id} 
+                      className={`hover:bg-gray-50 divide-x border-b border-dotted ${isolatedOrderIds.includes(order.id) ? 'isolated-order' : ''} ${order.id % 2 === 0 ? 'bg-[#FCFCFB]' : 'bg-[#F5F5F0]'}`}>
+                      <TableCell 
+                        className={`font-bold sticky left-0 p-1 whitespace-nowrap z-20 ${order.isReseller ? 'bg-[#59296e]' : 'bg-[#015a6c]'} align-top cursor-pointer order-number-cell`}
+                        style={{ zIndex: 20 }}
+                        onClick={() => handleOrderClick(order)}
+                      >
+                        <div className="flex flex-col pt-1">
+                          <div className="flex items-center">
+                            <span className="hover:underline text-black">
+                              {showOrderNumbers ? order.orderNumber?.replace('SW-', '') : ''}
+                            </span>
+                            {order.isReseller && (
+                              <span className="ml-1 text-xs bg-black text-white px-1 rounded font-bold">R</span>
+                            )}
+                            
+                            {/* Notes indicator with red dot */}
+                            {order.notes && order.notes.trim() !== '' && (
+                              <span 
+                                className="ml-1.5 inline-block h-4 w-4 rounded-full bg-red-600 border border-white" 
+                                title={`This order has customer notes: "${order.notes.substring(0, 30)}${order.notes.length > 30 ? '...' : ''}"`}
+                              ></span>
+                            )}
+                          </div>
+                        </div>
+                      </TableCell>
+                      <TableCell 
+                        className={`p-1 whitespace-nowrap text-center ${order.id % 2 === 0 ? 'bg-[#FCFCFB]' : 'bg-[#F5F5F0]'}`}
+                      >
+                        <button 
+                          className={`isolation-btn ${isolatedOrderIds.includes(order.id) ? 'active' : ''}`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            toggleOrderIsolation(order.id, e);
+                          }}
+                          title={isolatedOrderIds.includes(order.id) ? "Remove from isolated view" : "Isolate this order"}
+                          aria-label={isolatedOrderIds.includes(order.id) ? "Remove from isolated view" : "Isolate this order"}
+                        >
+                          {isolatedOrderIds.includes(order.id) ? 
+                            <Focus className="h-4 w-4" /> : 
+                            <Filter className="h-4 w-4" />
+                          }
+                        </button>
+                      </TableCell>
+                      <TableCell className={`font-medium p-1 whitespace-nowrap text-center text-lg ${order.id % 2 === 0 ? 'bg-[#FCFCFB]' : 'bg-[#F5F5F0]'}`}>
+                        <div className="flex flex-col items-center">
+                          {typeof getDaysSinceOrder(order.orderDate) === 'number' && (
+                            <span className={`px-2 py-0.5 rounded ${getWaitingColorClass(getDaysSinceOrder(order.orderDate) as number)}`}>
+                              {getDaysSinceOrder(order.orderDate)}
+                            </span>
+                          )}
+                          {order.isReseller && order.resellerNickname && (
+                            <span className="text-xs font-medium text-black mt-1">
+                              {order.resellerNickname}
+                            </span>
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell className={`p-1 whitespace-nowrap text-lg ${order.id % 2 === 0 ? 'bg-[#FCFCFB]' : 'bg-[#F5F5F0]'}`}>
+                        <div className="flex justify-center">
+                          {(() => {
+                            const instrumentType = getTypeFromSpecifications(order);
+                            const tuningNote = getNoteTuningFromSpecifications(order);
+                            const freq = getTuningFrequencyFromSpecifications(order) || "";
+                            
+                            // Extract frequency from freq string with improved detection
+                            const freqValue = freq.includes('432') ? '432' : 
+                                             (freq.includes('440') ? '440' : 
+                                             (freq.includes('64') ? '64' : undefined));
+                                             
+                            console.log('DEBUG PopoverFreq:', { 
+                              instrumentType, 
+                              tuningNote, 
+                              freq, 
+                              freqValue,
+                              orderId: ('id' in order) ? order.id : undefined,
+                              serialNumber: ('serialNumber' in order) ? order.serialNumber : undefined
+                            });
+                            
+                            if (instrumentType) {
+                              return (
+                                <MoldNamePopover 
+                                  instrumentType={instrumentType} 
+                                  tuningNote={tuningNote || ''} 
+                                  frequency={freqValue}
+                                >
+                                  <CombinedInstrumentTuningBadge
+                                    instrumentType={instrumentType}
+                                    tuningNote={tuningNote}
+                                    frequency={freqValue}
+                                  />
+                                </MoldNamePopover>
+                              );
+                            } else {
+                              return (
+                                <div style={{
+                                  display: 'inline-block',
+                                  padding: '4px 8px',
+                                  borderRadius: '4px',
+                                  fontFamily: '"PT Sans Narrow", sans-serif',
+                                  fontWeight: 'bold',
+                                  fontSize: '16pt',
+                                  backgroundColor: '#9ca3af',
+                                  color: 'white',
+                                  minWidth: '45px',
+                                  textAlign: 'center'
+                                }}>
+                                  —
+                                </div>
+                              );
+                            }
+                          })()}
+                        </div>
+                      </TableCell>
+                      <TableCell className="p-1 whitespace-nowrap text-center">
+                        <div className="flex justify-center">
+                          <span 
+                            style={{
+                              minWidth: '50px',
+                              padding: '0.25rem 0.5rem',
+                              borderRadius: '0.25rem',
+                              textAlign: 'center',
+                              fontFamily: '"PT Sans Narrow", sans-serif',
+                              fontWeight: 700,
+                              fontSize: '14pt',
+                              color: 'white'
+                            }}
+                            className={`${getColorClass(getColorFromSpecifications(order) === 'Smokefired Terra and Black' ? 'T' : (getColorFromSpecifications(order)?.slice(0, 2) || ''))}`}
+                          >
+                            {getColorFromSpecifications(order) === 'Smokefired Terra and Black' ? 'T' : (getColorFromSpecifications(order)?.slice(0, 2) || '—')}
+                          </span>
+                        </div>
+                      </TableCell>
+                      {statusColumns.map((col, index) => {
+                        // For date columns, show just a dash for collapsed items
+                        if (col.isDateColumn) {
+                          return (
+                            <TableCell 
+                              key={col.id} 
+                              className="text-center p-1 text-sm"
+                              style={{ 
+                                backgroundColor: index % 2 === 0 ? '#F5F5F0' : '#F9F0E8'
+                              }}
+                            >
+                              —
+                            </TableCell>
+                          );
+                        }
+                        
+                        // For material columns (bag, box)
+                        if (col.isMaterialColumn) {
+                          if (col.id === 'bag') {
+                            const bagInfo = getBagInfo(order);
+                            
+                            // Generate bag options based on instrument type
+                            const bagOptions = [
+                              { type: 'Innato', sizes: ['S', 'M', 'L', 'XL', 'XXL'] },
+                              { type: 'Natey', sizes: ['S', 'M', 'L'] },
+                              { type: 'ZEN', sizes: ['S', 'M', 'L'] },
+                              { type: 'Double', sizes: ['M', 'L'] },
+                              { type: 'OvA', sizes: ['Bagpack'] }
+                            ];
+                            
+                            return (
+                              <TableCell 
+                                key={col.id} 
+                                className="text-center p-1"
+                                style={{ 
+                                  backgroundColor: index % 2 === 0 ? '#F5F5F0' : '#F9F0E8'
+                                }}
+                              >
+                                {/* Clickable bag label that opens a dropdown */}
+                                <Popover>
+                                  <PopoverTrigger asChild>
+                                    <button className="w-full cursor-pointer">
+                                      {bagInfo ? (
+                                        <span className={`bag-label bag-${bagInfo.size} bag-${bagInfo.type}`}>
+                                          <span className="font-bold text-white">{bagInfo.type.toUpperCase()} {bagInfo.size.toUpperCase()}</span>
+                                        </span>
+                                      ) : (
+                                        <span className="text-gray-500 hover:text-gray-800">Assign bag</span>
+                                      )}
+                                    </button>
+                                  </PopoverTrigger>
+                                  <PopoverContent className="w-56 p-2">
+                                    <div className="grid gap-2">
+                                      <h4 className="font-medium text-sm">Select bag type</h4>
+                                      <div className="grid grid-cols-2 gap-1">
+                                        {bagOptions.map(option => (
+                                          <div key={option.type}>
+                                            <div className="font-medium text-xs mb-1">{option.type}</div>
+                                            <div className="flex flex-wrap gap-1">
+                                              {option.sizes.map(size => (
+                                                <button
+                                                  key={`${option.type}-${size}`}
+                                                  className={`text-xs px-2 py-1 rounded border ${
+                                                    bagInfo?.type === option.type && bagInfo?.size === size
+                                                      ? 'bg-primary text-white'
+                                                      : 'bg-white hover:bg-gray-100'
+                                                  }`}
+                                                  onClick={() => handleMaterialUpdate(
+                                                    order.id,
+                                                    true,
+                                                    'bag',
+                                                    { type: option.type, size }
+                                                  )}
+                                                >
+                                                  {size}
+                                                </button>
+                                              ))}
+                                            </div>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  </PopoverContent>
+                                </Popover>
+                              </TableCell>
+                            );
+                          } else if (col.id === 'box') {
+                            // Get instrument type and tuning to determine correct box size
+                            const instrumentType = getTypeFromSpecifications(order);
+                            const tuningNote = getNoteTuningFromSpecifications(order);
+                            let boxSize: string | undefined;
+                            
+                            // Direct mapping for each instrument type and tuning
+                            if (instrumentType) {
+                              const type = instrumentType.toUpperCase();
+                              
+                              if (type.includes('INNATO')) {
+                                // INNATO box size logic
+                                if (tuningNote) {
+                                  // Lower tunings need bigger boxes
+                                  if (tuningNote.includes('G3') || tuningNote.includes('F#3') ||
+                                      tuningNote.includes('F3') || tuningNote.includes('E3')) {
+                                    boxSize = '35x35x35';
+                                  } else {
+                                    boxSize = '30x30x30';
+                                  }
+                                } else {
+                                  // Default box for INNATO
+                                  boxSize = '30x30x30';
+                                }
+                              } else if (type.includes('NATEY')) {
+                                // NATEY box size logic - 2 distinct sizes based on tuning
+                                if (tuningNote) {
+                                  // Higher tunings use 15x15x15, lower use 12x12x30
+                                  const highNotes = ['A4', 'G#4', 'G4', 'F#4', 'F4'];
+                                  if (highNotes.includes(tuningNote)) {
+                                    boxSize = '15x15x15';
+                                  } else {
+                                    boxSize = '12x12x30';
+                                  }
+                                } else {
+                                  // Default box for NATEY
+                                  boxSize = '12x12x30';
+                                }
+                              } else if (type.includes('ZEN')) {
+                                // All ZEN flutes use the same box size
+                                boxSize = '15x15x15';
+                              } else if (type.includes('DOUBLE')) {
+                                // All DOUBLE flutes use the same box size
+                                boxSize = '20x20x20';
+                              } else if (type.includes('OVA')) {
+                                // OVA flutes get a large backpack box
+                                boxSize = '40x40x60';
+                              } else if (type.includes('CARDS')) {
+                                // Cards products go in an envelope
+                                boxSize = 'Envelope';
+                              } else {
+                                // Fallback to regular box size function
+                                boxSize = getBoxSize(order);
+                              }
+                            } else {
+                              // If no instrument type, use regular function
+                              boxSize = getBoxSize(order);
+                            }
+                            
+                            // Determine box size class (small, medium, large) based on dimensions
+                            const getBoxSizeClass = (size: string | undefined) => {
+                              if (!size) return 'box-small';
+                              if (size.startsWith('15') || size.startsWith('20') || size.startsWith('12')) return 'box-small';
+                              if (size.startsWith('30')) return 'box-medium';
+                              return 'box-large'; // 35, 40, 50
+                            };
+                            
+                            // All available box sizes
+                            const boxSizes = ['20x20x20', '30x30x30', '35x35x35', '40x40x40', '50x50x50', '15x15x15', '12x12x30', 
+                              '35x35x35', '40x40x60', 'Envelope'];
+                            
+                            return (
+                              <TableCell 
+                                key={col.id} 
+                                className="text-center p-1"
+                                style={{ 
+                                  backgroundColor: index % 2 === 0 ? '#F5F5F0' : '#F9F0E8'
+                                }}
+                              >
+                                <Popover>
+                                  <PopoverTrigger asChild>
+                                    <button className="w-full cursor-pointer">
+                                      {boxSize ? (
+                                        <span className={`box-label ${getBoxSizeClass(boxSize)}`}>
+                                          <span className="font-bold text-white">{boxSize.toUpperCase()}</span>
+                                        </span>
+                                      ) : (
+                                        <span className="text-gray-500 hover:text-gray-800">Assign box</span>
+                                      )}
+                                    </button>
+                                  </PopoverTrigger>
+                                  <PopoverContent className="w-48 p-2">
+                                    <div className="grid gap-2">
+                                      <h4 className="font-medium text-sm">Select box size</h4>
+                                      <div className="grid grid-cols-2 gap-1">
+                                        {boxSizes.map(size => (
+                                          <button
+                                            key={size}
+                                            className={`text-xs px-2 py-1 rounded border ${
+                                              boxSize === size
+                                                ? 'bg-primary text-white'
+                                                : 'bg-white hover:bg-gray-100'
+                                            }`}
+                                            onClick={() => handleMaterialUpdate(
+                                              order.id,
+                                              true,
+                                              'box',
+                                              size
+                                            )}
+                                          >
+                                            {size}
+                                          </button>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  </PopoverContent>
+                                </Popover>
+                              </TableCell>
+                            );
+                          }
+                        }
+                        
+                        // For the DRY checkbox - auto-checked after 5 days from BUILD
+                        if (col.isAutoCheck && col.dependsOn === 'building') {
+                          const isBuilt = order.status === 'building' || isStatusComplete(order, 'building');
+                          const isDryEnough = isDry(order);
+                          
+                          return (
+                            <TableCell 
+                              key={col.id} 
+                              className="text-center p-0 align-middle"
+                              style={{ 
+                                backgroundColor: index % 2 === 0 ? '#F5F5F0' : '#F9F0E8',
+                                verticalAlign: 'middle'
+                              }}
+                            >
+                              <Checkbox
+                                checked={isBuilt && isDryEnough.isDryEnough}
+                                className={`touch-target h-7 w-7 !border-orange-500 !border-2 ${isDryEnough.isDryEnough && isBuilt ? '!bg-orange-500 !text-white' : ''}`}
+                                disabled={true} // This is auto-checked based on date
+                              />
+                            </TableCell>
+                          );
+                        }
+                        
+                        // For regular status checkboxes
+                        return (
+                          <TableCell 
+                            key={col.id} 
+                            className="text-center p-0 align-middle"
+                            style={{ 
+                              backgroundColor: index % 2 === 0 ? '#F5F5F0' : '#F9F0E8',
+                              verticalAlign: 'middle'
+                            }}
+                          >
+                            {/* Special handling for DRY status */}
+                            {col.id === 'dry' && col.isAutoCheck ? (
+                              (() => {
+                                // Get drying status info (has it been 5 days, how many days left)
+                                const dryingStatus = isDry(order);
+                                const isDryStatusPresent = Boolean(order.statusChangeDates?.dry);
+                                
+                                // If it's ready to be marked dry (5 days passed) and not yet marked
+                                if (dryingStatus.isDryEnough && !isDryStatusPresent) {
+                                  return (
+                                    <div 
+                                      className="bg-[#f06923] rounded-md flex items-center justify-center mx-auto w-7 h-7 cursor-pointer"
+                                      onClick={() => handleOrderStatusChange(order.id, col.id, true)}
+                                    >
+                                      <Check className="h-5 w-5 text-white" />
+                                    </div>
+                                  );
+                                }
+                                
+                                // If it's still drying, show days remaining in orange pill
+                                if (!dryingStatus.isDryEnough && dryingStatus.daysRemaining !== null && !isDryStatusPresent) {
+                                  return (
+                                    <div 
+                                      className="bg-orange-100 border border-[#f06923] rounded-md flex items-center justify-center mx-auto w-7 h-7 cursor-pointer text-xs font-bold text-[#d25618]"
+                                      title={`${dryingStatus.daysRemaining} day${dryingStatus.daysRemaining !== 1 ? 's' : ''} left to dry`}
+                                    >
+                                      {dryingStatus.daysRemaining}
+                                    </div>
+                                  );
+                                }
+                                
+                                // Otherwise regular checkbox
+                                return (
+                                  <Checkbox
+                                    checked={isStatusComplete(order, col.id)} 
+                                    onCheckedChange={(checked) => 
+                                      handleOrderStatusChange(order.id, col.id, checked as boolean)
+                                    }
+                                    className="touch-target h-7 w-7 cursor-pointer"
+                                    data-order-id={order.id}
+                                    data-status={col.id}
+                                  />
+                                );
+                              })()
+                            ) : (
+                              <div className="checkbox-wrapper">
+                                <Checkbox
+                                  checked={isStatusComplete(order, col.id)} 
+                                  onCheckedChange={(checked) => 
+                                    handleOrderStatusChange(order.id, col.id, checked as boolean)
+                                  }
+                                  className={`touch-target ${
+                                    // Special color for SM checkbox - grey to indicate it's auto-checked for smoke-fired colors
+                                    col.id === 'smoothing' && needsSmokeFiring(order) 
+                                      ? 'checkbox-sm-auto cursor-not-allowed !bg-gray-200 !border-gray-400' 
+                                      : col.id === 'dry' 
+                                        ? 'checkbox-dry cursor-pointer !border-orange-500 !border-2' 
+                                        : 'cursor-pointer'
+                                  }`}
+                                  // Disable SM checkbox for smoke-fired colors and TS R checkbox if criteria not met
+                                  disabled={(col.id === 'smoothing' && needsSmokeFiring(order)) || 
+                                    (col.id === 'testing' && order.status === 'building' && !isStatusComplete(order, 'testing'))}
+                                  data-order-id={order.id}
+                                  data-status={col.id}
+                                />
+                              </div>
+                            )}
+                          </TableCell>
+                        );
+                      })}
+                    </TableRow>
+                  );
+                }
+                
+                // If there are items, show each item in its own row with order info in first row only
+                // Always show expanded version regardless of collapse state
+                // const isCollapsed = Boolean(collapsedOrders[order.id]);
+                
+                // We're no longer using the collapsed view - always show all items
+                // if (isCollapsed && orderItems.length > 1) {
+                //   ...collapsed view code removed...
+                // }
+                
+                // If not collapsed, show all items
+                return orderItems.map((item, index) => (
+                  <TableRow 
+                    key={`${order.id}-${item.id}`}
+                    className={`
+  hover:bg-gray-50 
+  divide-x 
+  border-b border-dotted
+  order-row
+  ${isolatedOrderIds.includes(order.id) ? 'isolated-order' : ''} 
+  ${orderItems.length > 1 ? 'multi-item-flat-row' : (order.id % 2 === 0 ? 'bg-[#FCFCFB]' : 'bg-[#F5F5F0]')}
+  ${orderItems.length > 1 ? 'border-l-4 border-l-gray-300' : ''}
+  ${index === 0 && orderItems.length > 1 ? 'border-t-2 border-t-gray-400' : ''}
+  ${index === orderItems.length - 1 && orderItems.length > 1 ? 'border-b-2 border-b-gray-400' : ''}
+`}
+                    style={{
+                      backgroundColor: getCellBackgroundColor(orderItems, order.id),
+                      verticalAlign: 'middle'
+                    }}
+                  >
+                        <TableCell 
+                          className={`font-bold sticky left-0 p-1 whitespace-nowrap z-20 ${order.isReseller ? 'bg-[#59296e]' : 'bg-[#015a6c]'} align-middle cursor-pointer order-number-cell`}
+                          style={{ zIndex: 20 }}
+                          onClick={() => handleOrderClick(order)}
+                        >
+                          <div className="flex flex-col pt-1">
+                            <div className="flex items-center">
+                              <span className="hover:underline text-black">
+                                {showOrderNumbers ? (
+                                  orderItems.length > 1 ? 
+                                    `${order.orderNumber?.replace('SW-', '')}-${index + 1}` : 
+                                    order.orderNumber?.replace('SW-', '')
+                                ) : ''}
+                              </span>
+                              
+                              {/* Notes indicator with red dot - comes before joint box */}
+                              {order.notes && order.notes.trim() !== '' && (
+                                <span 
+                                  className="ml-1.5 inline-block h-2.5 w-2.5 rounded-full bg-red-600 border border-white" 
+                                  title={`This order has customer notes: "${order.notes.substring(0, 30)}${order.notes.length > 30 ? '...' : ''}"`}
+                                ></span>
+                              )}
+                              
+                              {/* Removed Joint Box button - no longer needed */}
+                              {orderItems.length > 1 && (
+                                <div className="ml-2 bg-white text-black px-0.5 py-0.5 text-xs font-medium flex items-center rounded border border-gray-400">
+                                  {/* For resellers, show nickname and count */}
+                                  {order.isReseller && order.resellerNickname ? (
+                                    <span className="px-1 py-0 bg-white text-black rounded font-bold flex items-center">
+                                      <span>{order.resellerNickname} {orderItems.length}</span>
+                                    </span>
+                                  ) : (
+                                    <span className="text-black font-bold">
+                                      {`${orderItems.length}`}
+                                    </span>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                            
+                            {/* Removed extended order numbers from here - will show them in each row */}
+                          </div>
+                        </TableCell>
+                        <TableCell 
+                          
+                          className={`p-1 whitespace-nowrap text-center align-middle`}
+                          style={{ backgroundColor: getCellBackgroundColor(orderItems, order.id) }}
+                        >
+                          <div className="flex flex-col items-center">
+                            <button 
+                              className={`isolation-btn ${isolatedOrderIds.includes(order.id) ? 'active' : ''}`}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                toggleOrderIsolation(order.id, e);
+                              }}
+                              title={isolatedOrderIds.includes(order.id) ? "Remove from isolated view" : "Isolate this order"}
+                              aria-label={isolatedOrderIds.includes(order.id) ? "Remove from isolated view" : "Isolate this order"}
+                            >
+                              {isolatedOrderIds.includes(order.id) ? 
+                                <Focus className="h-4 w-4" /> : 
+                                <Filter className="h-4 w-4" />
+                              }
+                            </button>
+                          </div>
+                        </TableCell>
+                        <TableCell 
+                          
+                          className={`font-medium p-1 whitespace-nowrap text-center align-middle`}
+                          style={{ backgroundColor: getCellBackgroundColor(orderItems, order.id) }}
+                        >
+                          <div className="flex flex-col items-center">
+                            {typeof getDaysSinceOrder(order.orderDate) === 'number' && (
+                              <span className={`px-2 py-0.5 rounded ${getWaitingColorClass(getDaysSinceOrder(order.orderDate) as number)}`}>
+                                {getDaysSinceOrder(order.orderDate)}
+                              </span>
+                            )}
+                          </div>
+                        </TableCell>
+                    {/* We'll handle serial numbers in a different way */}
+                    
+                    <TableCell 
+                      className="p-1 whitespace-nowrap text-lg"
+                      style={{ 
+                        zIndex: 10,
+                        verticalAlign: "middle"
+                      }}
+                    >
+                      {/* Show the extended order number for each row when expanded */}
+                      <div 
+                        className="flex flex-col items-center p-0.5"
+                        style={{ 
+                          alignItems: 'center',
+                          verticalAlign: 'middle',
+                          display: 'flex',
+                          flexDirection: 'column'
+                        }}
+                      >
+                        {/* Removed duplicate order number display since we're showing it in the order number column */}
+                        {/* Combined badge with instrument type, tuning, and frequency */}
+                        <div className="flex justify-center">
+                          {(() => {
+                            const instrumentType = getTypeFromSpecifications(item) || getTypeFromSpecifications(order);
+                            const tuningNote = getNoteTuningFromSpecifications(item) || getNoteTuningFromSpecifications(order);
+                            const freq = getTuningFrequencyFromSpecifications(item) || getTuningFrequencyFromSpecifications(order) || "";
+
+                            // Extract frequency from freq string with improved detection
+                            const freqValue = freq.includes('432') ? '432' : 
+                                            (freq.includes('440') ? '440' : 
+                                            (freq.includes('64') ? '64' : undefined));
+                                             
+                            console.log('DEBUG ItemPopoverFreq:', { 
+                              instrumentType, 
+                              tuningNote, 
+                              freq, 
+                              freqValue,
+                              itemId: item.id,
+                              serialNumber: item.serialNumber
+                            });
+                            
+                            if (instrumentType) {
+                              return (
+                                <MoldNamePopover 
+                                  instrumentType={instrumentType} 
+                                  tuningNote={tuningNote || ''} 
+                                  frequency={freqValue}
+                                >
+                                  <CombinedInstrumentTuningBadge
+                                    instrumentType={instrumentType}
+                                    tuningNote={tuningNote}
+                                    frequency={freqValue}
+                                  />
+                                </MoldNamePopover>
+                              );
+                            } else {
+                              return (
+                                <div style={{
+                                  display: 'inline-block',
+                                  padding: '4px 8px',
+                                  borderRadius: '4px',
+                                  fontFamily: '"PT Sans Narrow", sans-serif',
+                                  fontWeight: 'bold',
+                                  fontSize: '16pt',
+                                  backgroundColor: '#9ca3af',
+                                  color: 'white',
+                                  minWidth: '45px',
+                                  textAlign: 'center'
+                                }}>
+                                  —
+                                </div>
+                              );
+                            }
+                          })()}
+                        </div>
+                      </div>
+                    </TableCell>
+                    <TableCell 
+                      className="p-1 whitespace-nowrap text-center"
+                      style={{ 
+                        zIndex: 10,
+                        verticalAlign: "middle"
+                      }}
+                    >
+                      <div className="flex justify-center p-0.5" style={{ 
+                        backgroundColor: 'transparent',
+                        width: '100%'
+                      }}>
+                        {/* Use getColorFromSpecifications(item) directly instead of getColorFromSpecifications(order) */}
+                        {(() => {
+                          const itemColor = getColorFromSpecifications(item);
+                          const colorCode = itemColor === 'Smokefired Terra and Black' ? 'T' : (itemColor?.slice(0, 2) || '');
+                          
+                          // For our problematic SW-1580-2 with "Smokefired black with Terra and Copper Bubbles"
+                          if (item.serialNumber === 'SW-1580-2') {
+                            console.log("Special case for SW-1580-2, forcing color code C");
+                            return (
+                              <span className={`min-w-[60px] px-2 py-1 rounded font-medium text-center ${getColorClass('C')}`}>
+                                C
+                              </span>
+                            );
+                          }
+                          
+                          return (
+                            <span className={`min-w-[60px] px-2 py-1 rounded font-medium text-center ${getColorClass(colorCode)}`}>
+                              {colorCode || '—'}
+                            </span>
+                          );
+                        })()}
+                      </div>
+                    </TableCell>
+                    {statusColumns.map((col, index) => {
+                      // For date columns, hide them by returning empty cell
+                      if (col.isDateColumn) {
+                        return (
+                          <TableCell 
+                            key={col.id} 
+                            className="text-center p-1 text-base status-column-group"
+                            style={{ 
+                              zIndex: 10,
+                              verticalAlign: "middle"
+                            }}
+                          >
+                            <div className="flex justify-center p-0.5" style={{ 
+                              backgroundColor: 'transparent',
+                              width: '100%'
+                            }}>
+                              {/* Don't display dates in multi-item orders */}
+                              —
+                            </div>
+                          </TableCell>
+                        );
+                      }
+                      
+                      // For material columns (bag, box)
+                      if (col.isMaterialColumn) {
+                        if (col.id === 'bag') {
+                          const bagInfo = getBagInfo(item) || getBagInfo(order);
+                          
+                          // Generate bag options based on instrument type
+                          const bagOptions = [
+                            { type: 'Innato', sizes: ['S', 'M', 'L', 'XL', 'XXL'] },
+                            { type: 'Natey', sizes: ['S', 'M', 'L'] },
+                            { type: 'ZEN', sizes: ['S', 'M', 'L'] },
+                            { type: 'Double', sizes: ['M', 'L'] },
+                            { type: 'OvA', sizes: ['Bagpack'] }
+                          ];
+                          
+                          // Determine if this is an expanded item row
+                          const isExpandedItemRow = false; // No expanded rows in flat system
+                          
+                          return (
+                            <TableCell 
+                              key={col.id} 
+                              className="text-center p-1 material-column"
+                              style={{ 
+                                backgroundColor: isExpandedItemRow ? '#e2e2e2' : (index % 2 === 0 ? '#F5F5F0' : '#F9F0E8'),
+                                zIndex: 10
+                              }}
+                            >
+                              {/* Clickable bag label that opens a dropdown */}
+                              <Popover>
+                                <PopoverTrigger asChild>
+                                  <button className="w-full cursor-pointer">
+                                    {bagInfo ? (
+                                      <span className={`bag-label bag-${bagInfo.size} bag-${bagInfo.type}`}>
+                                        <span className="font-bold text-white">{bagInfo.type.toUpperCase()} {bagInfo.size.toUpperCase()}</span>
+                                      </span>
+                                    ) : (
+                                      <span className="text-gray-500 hover:text-gray-800">Assign bag</span>
+                                    )}
+                                  </button>
+                                </PopoverTrigger>
+                                <PopoverContent className="w-56 p-2">
+                                  <div className="grid gap-2">
+                                    <h4 className="font-medium text-sm">Select bag type</h4>
+                                    <div className="grid grid-cols-2 gap-1">
+                                      {bagOptions.map(option => (
+                                        <div key={option.type}>
+                                          <div className="font-medium text-xs mb-1">{option.type}</div>
+                                          <div className="flex flex-wrap gap-1">
+                                            {option.sizes.map(size => (
+                                              <button
+                                                key={`${option.type}-${size}`}
+                                                className={`text-xs px-2 py-1 rounded border ${
+                                                  bagInfo?.type === option.type && bagInfo?.size === size
+                                                    ? 'bg-primary text-white'
+                                                    : 'bg-white hover:bg-gray-100'
+                                                }`}
+                                                onClick={() => handleMaterialUpdate(
+                                                  item.id,
+                                                  false,
+                                                  'bag',
+                                                  { type: option.type, size }
+                                                )}
+                                              >
+                                                {size}
+                                              </button>
+                                            ))}
+                                          </div>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                </PopoverContent>
+                              </Popover>
+                            </TableCell>
+                          );
+                        } else if (col.id === 'box') {
+                          // First get bag info to determine the box size
+                          const bagInfo = getBagInfo(item) || getBagInfo(order);
+                          const instrumentType = getTypeFromSpecifications(item) || getTypeFromSpecifications(order);
+                          
+                          // Get box size from material settings based on bag info
+                          let boxSize: string | undefined;
+                          
+                          if (bagInfo && instrumentType && materialSettings) {
+                            const type = instrumentType.toLowerCase();
+                            let instrumentKey: string;
+                            
+                            // Normalize instrument type for lookup
+                            if (type.includes('innato')) instrumentKey = 'innato';
+                            else if (type.includes('natey')) instrumentKey = 'natey';
+                            else if (type.includes('zen')) instrumentKey = 'zen';
+                            else if (type.includes('double')) instrumentKey = 'double';
+                            else if (type.includes('ova')) instrumentKey = 'ova';
+                            else if (type.includes('card')) instrumentKey = 'cards';
+                            else instrumentKey = '';
+                            
+                            // Find matching setting by bag size
+                            if (instrumentKey && materialSettings[instrumentKey]) {
+                              // Find first matching setting with this bag size
+                              const matchingSetting = materialSettings[instrumentKey].find(
+                                (setting: any) => setting.bagSize === bagInfo.size
+                              );
+                              
+                              if (matchingSetting) {
+                                boxSize = matchingSetting.boxSize;
+                                console.log(`Found box size ${boxSize} for ${instrumentKey} with bag size ${bagInfo.size}`);
+                              }
+                            }
+                          }
+
+                          // If no box size from material settings, use the one from the order data
+                          if (!boxSize) {
+                            boxSize = getBoxSize(item) || getBoxSize(order);
+                          }
+                          
+                          // For styling the box size
+                          const getBoxSizeClass = (size: string | undefined) => {
+                            if (!size) return 'box-small';
+                            if (size === '-' || size === 'Envelope' || size === 'E~NVELOPE') return 'box-envelope';
+                            if (size.startsWith('15') || size.startsWith('20') || size.startsWith('12')) return 'box-small';
+                            if (size.startsWith('30')) return 'box-medium';
+                            return 'box-large'; // 35, 40, 50
+                          };
+                          
+                          // Get all available box sizes from material settings
+                          let boxSizes: string[] = [];
+                          
+                          if (materialSettings) {
+                            // Get all unique box sizes from workshop settings
+                            const allSizes = new Set<string>();
+                            
+                            Object.values(materialSettings).forEach((settings: any) => {
+                              settings.forEach((setting: any) => {
+                                if (setting.boxSize && setting.boxSize !== '-') {
+                                  allSizes.add(setting.boxSize);
+                                }
+                              });
+                            });
+                            
+                            boxSizes = Array.from(allSizes);
+                            
+                            // Add ENVELOPE option for CARDS
+                            if (instrumentType?.toLowerCase().includes('card')) {
+                              boxSizes = ['ENVELOPE'];
+                              // Force boxSize to ENVELOPE for CARDS products
+                              boxSize = 'ENVELOPE';
+                            }
+                          } else {
+                            // Fallback if no material settings
+                            boxSizes = ['20x20x20', '30x30x30', '35x35x35', '40x40x40', '50x50x50', '15x15x15', '12x12x30', 
+                                      '35x35x35', '40x40x60', 'ENVELOPE'];
+                          }
+                          
+                          // Determine if this is an expanded item row
+                          const isExpandedItemRow = false; // No expanded rows in flat system
+                          
+                          return (
+                            <TableCell 
+                              key={col.id} 
+                              className="text-center p-1 material-column"
+                              style={{ 
+                                backgroundColor: isExpandedItemRow ? '#e2e2e2' : (index % 2 === 0 ? '#F5F5F0' : '#F9F0E8'),
+                                zIndex: 10
+                              }}
+                            >
+                              <Popover>
+                                <PopoverTrigger asChild>
+                                  <button className="w-full cursor-pointer">
+                                    {boxSize ? (
+                                      <span className={`box-label ${getBoxSizeClass(boxSize)}`}>
+                                        <span className="font-bold text-white">
+                                          {boxSize === "ENVELOPE" || boxSize === "E~NVELOPE" ? "ENVELOPE" : 
+                                           boxSize.replace(/X/g, 'x')}
+                                        </span>
+                                      </span>
+                                    ) : (
+                                      <span className="text-gray-500 hover:text-gray-800">Assign box</span>
+                                    )}
+                                  </button>
+                                </PopoverTrigger>
+                                <PopoverContent className="w-48 p-2">
+                                  <div className="grid gap-2">
+                                    <h4 className="font-medium text-sm">Select box size</h4>
+                                    <div className="grid grid-cols-2 gap-1">
+                                      {boxSizes.map(size => (
+                                        <button
+                                          key={size}
+                                          className={`text-xs px-2 py-1 rounded border ${
+                                            boxSize === size
+                                              ? 'bg-primary text-white'
+                                              : 'bg-white hover:bg-gray-100'
+                                          }`}
+                                          onClick={() => handleMaterialUpdate(
+                                            item.id,
+                                            false,
+                                            'box',
+                                            size
+                                          )}
+                                        >
+                                          {size === "ENVELOPE" || size === "E~NVELOPE" ? "ENVELOPE" : size.replace(/X/g, 'x')}
+                                        </button>
+                                      ))}
+                                    </div>
+                                  </div>
+                                </PopoverContent>
+                              </Popover>
+                            </TableCell>
+                          );
+                        }
+                        return (
+                          <TableCell key={col.id} className="text-center p-1">—</TableCell>
+                        );
+                      }
+                      
+                      // For the DRY checkbox - auto-checked after 5 days from BUILD
+                      if (col.isAutoCheck && col.dependsOn === 'building') {
+                        // Get drying status info (has it been 5 days, how many days left)
+                        const dryingStatus = isDry(item);
+                        const isBuilt = isStatusComplete(item, 'building');
+                        
+                        // Check if the dry status is already marked
+                        const isDryStatusPresent = Boolean(item.statusChangeDates && item.statusChangeDates['dry']);
+                        
+                        return (
+                          <TableCell 
+                            key={col.id} 
+                            className="text-center p-0 status-column-group"
+                            style={{ 
+                              zIndex: 10
+                            }}
+                          >
+                            <div className="flex justify-center p-0.5" style={{ 
+                              backgroundColor: (orderItems.length > 1 && !collapsedOrders[order.id] && index > 0) ? '#f5f5f3' : 'transparent',
+                              borderRadius: (orderItems.length > 1 && !collapsedOrders[order.id] && index > 0) ? '4px' : '0',
+                              width: '100%'
+                            }}>
+                              {isBuilt && dryingStatus.isDryEnough && !isDryStatusPresent ? (
+                                <div 
+                                  className="bg-[#f06923] rounded-md flex items-center justify-center mx-auto w-7 h-7 cursor-pointer"
+                                  onClick={() => handleItemStatusChange(item.id, 'dry', true)}
+                                >
+                                  <Check className="h-5 w-5 text-white" />
+                                </div>
+                              ) : isBuilt && !dryingStatus.isDryEnough && dryingStatus.daysRemaining !== null && !isDryStatusPresent ? (
+                                <div 
+                                  className="bg-orange-100 border-2 border-[#f06923] rounded-md flex items-center justify-center mx-auto w-8 h-8 cursor-pointer text-lg font-bold text-[#d25618]"
+                                  title={`${dryingStatus.daysRemaining} day${dryingStatus.daysRemaining !== 1 ? 's' : ''} left to dry`}
+                                >
+                                  {dryingStatus.daysRemaining}
+                                </div>
+                              ) : (
+                                <Checkbox
+                                  checked={Boolean(isDryStatusPresent) || (isBuilt && dryingStatus.isDryEnough)}
+                                  onCheckedChange={(checked) => 
+                                    handleItemStatusChange(item.id, 'dry', checked as boolean)
+                                  }
+                                  className="touch-target h-7 w-7 border-orange-500 border-2 data-[state=checked]:bg-orange-500 data-[state=checked]:text-white cursor-pointer"
+                                  data-item-id={item.id}
+                                  data-status="dry"
+                                />
+                              )}
+                            </div>
+                          </TableCell>
+                        );
+                      }
+                      
+                      // For regular status checkboxes
+                      return (
+                        <TableCell 
+                          key={col.id} 
+                          className="text-center p-0 status-column-group"
+                          style={{ 
+                            zIndex: 10
+                          }}
+                        >
+                          <div className="flex justify-center p-0.5" style={{ 
+                            backgroundColor: orderItems.length > 1 ? '#f5f5f3' : 'transparent',
+                            width: '100%'
+                          }}>
+                            <Checkbox
+                              checked={isStatusComplete(item, col.id)}
+                              onCheckedChange={(checked) => 
+                                handleItemStatusChange(
+                                  item.id, 
+                                  col.id, 
+                                  checked as boolean
+                                )
+                              }
+                              className={`touch-target h-7 w-7 ${
+                                // Special color for SM checkbox - grey to indicate it's auto-checked for smoke-fired colors
+                                col.id === 'smoothing' ? needsSmokeFiring(item) ? 
+                                  'bg-gray-200 border-gray-400 cursor-not-allowed' : 'cursor-pointer' : 
+                                // Special color for DRY checkbox - orange
+                                col.id === 'dry' ? 'border-orange-500 border-2 data-[state=checked]:bg-orange-500 data-[state=checked]:text-white cursor-pointer' : 
+                                'cursor-pointer'
+                              }`}
+                              // Disable SM checkbox for smoke-fired colors and TS R checkbox if criteria not met
+                              disabled={(col.id === 'smoothing' && needsSmokeFiring(item)) || 
+                                (col.id === 'testing' && 
+                                (item.status || order.status) === 'building' && 
+                                !(item.status === 'testing' || isStatusComplete(order, 'testing')))}
+                            />
+                          </div>
+                        </TableCell>
+                      );
+                    })}
+                    <TableCell 
+                      className="p-1 min-w-[150px] max-w-[250px] notes-column"
+                      style={{ 
+                        zIndex: 10
+                      }}
+                    >
+                      <div className="flex flex-col p-0.5" style={{ 
+                        backgroundColor: orderItems.length > 1 ? '#f5f5f3' : 'transparent',
+                        width: '100%'
+                      }}>
+                        <div className="relative group">
+                          {/* Abbreviated notes - always visible */}
+                          <div className="whitespace-nowrap overflow-hidden text-ellipsis max-w-[150px] text-base">
+                            {(typeof item.specifications === 'object' && 
+                             ((item.specifications as any)?.notes || 
+                              (item.specifications as any)?.note || 
+                              (item.specifications as any)?.comments || 
+                              (item.specifications as any)?.remark)) || 
+                              order.notes || ""}
+                          </div>
+                          
+                          {/* Full notes that show on hover - if notes exist and are longer than what fits */}
+                          {((typeof item.specifications === 'object' && 
+                             (item.specifications as any)?.notes && 
+                             (item.specifications as any)?.notes.length > 20) || 
+                             (order.notes && order.notes.length > 20)) && (
+                            <div className="absolute left-0 top-full mt-1 z-50 bg-white shadow-lg rounded p-2 min-w-[200px] max-w-[300px] whitespace-normal text-sm hidden group-hover:block">
+                              {(typeof item.specifications === 'object' && 
+                               (item.specifications as any)?.notes) || 
+                                order.notes || ""}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ));
+              })
+            )}
+          </TableBody>
+        </Table>
+        {/* Joint Box Selection Dialog */}
+        <Dialog open={jointBoxDialogOpen} onOpenChange={setJointBoxDialogOpen}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>Assign Joint Box</DialogTitle>
+              <DialogDescription>
+                Select a box size to assign to all {selectedItems.length} selected items.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="grid gap-4 py-4">
+              <div className="space-y-2">
+                <div className="flex justify-between items-center mb-2">
+                  <Label htmlFor="boxSize" className="text-base">Box Sizes</Label>
+                  <span className="text-sm text-gray-500">{selectedItems.length} items selected</span>
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  {/* Get box sizes directly from box materials inventory */}
+                  {(boxMaterials as MaterialInventory[])
+                    .filter((material: MaterialInventory) => 
+                      // Only show boxes with available inventory
+                      material.materialType === 'box' && material.quantity > 0
+                    )
+                    .map((material: MaterialInventory) => (
+                    <Button
+                      key={material.id}
+                      variant={selectedCustomBox === material.size ? "default" : "outline"}
+                      className={`text-sm h-10 ${selectedCustomBox === material.size ? "bg-[#1F5B61] hover:bg-[#174349] text-white" : ""}`}
+                      onClick={() => setSelectedCustomBox(material.size)}
+                    >
+                      <div className="flex flex-col items-center">
+                        <span>{material.size === "ENVELOPE" || material.size === "E~NVELOPE" ? "ENVELOPE" : material.size.replace(/X/g, 'x')}</span>
+                        <span className="text-xs opacity-70">({material.quantity} left)</span>
+                      </div>
+                    </Button>
+                  ))}
+                </div>
+                <div className="mt-4">
+                  <Label htmlFor="customBoxSize" className="block mb-2">Custom Size</Label>
+                  <div className="flex items-center gap-2">
+                    <Input 
+                      id="customBoxSize"
+                      placeholder="e.g. 45x45x45"
+                      value={customBoxSize}
+                      onChange={(e) => {
+                        setCustomBoxSize(e.target.value);
+                        setSelectedCustomBox(e.target.value);
+                      }}
+                      className="flex-1"
+                    />
+                  </div>
+                </div>
+              </div>
+              <div className="space-y-1 mt-2">
+                <Label className="text-base">Selected Flutes</Label>
+                <div className="max-h-48 overflow-y-auto border rounded-md p-2 bg-gray-50">
+                  {selectedItems.map(item => (
+                    <div key={item.id} className="flex items-center py-1 border-b last:border-0">
+                      <div className="font-medium">{item.serialNumber}</div>
+                      <div className="ml-2 text-sm text-gray-500">
+                        {getTypeFromSpecifications(item)} {getNoteTuningFromSpecifications(item)}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setJointBoxDialogOpen(false);
+                  setSelectedCustomBox('');
+                  setCustomBoxSize('');
+                }}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={() => {
+                  const boxSize = selectedCustomBox === customBoxSize ? customBoxSize : selectedCustomBox;
+                  updateCustomBoxMutation.mutate({
+                    itemIds: selectedItems.map(item => item.id),
+                    customBoxSize: boxSize
+                  });
+                  setJointBoxDialogOpen(false);
+                }}
+                className="bg-[#1F5B61] hover:bg-[#174349] text-white"
+                disabled={!selectedCustomBox || selectedItems.length === 0}
+              >
+                Apply Joint Box
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Non-working Periods and Time Window Dialog */}
+        <Dialog open={showNonWorkingForm} onOpenChange={setShowNonWorkingForm}>
+          <DialogContent className="sm:max-w-lg">
+            <DialogHeader>
+              <DialogTitle>Non-working Periods & Calculation Settings</DialogTitle>
+              <DialogDescription>
+                Add non-working periods (holidays, travel, etc.) to improve waiting time calculations.
+                These periods will be excluded from waiting time calculations.
+              </DialogDescription>
+            </DialogHeader>
+            
+            <div className="space-y-6">
+              {/* Time Window Selection */}
+              <div className="space-y-2">
+                <h3 className="text-lg font-medium">Time Window for Waiting Calculations</h3>
+                <p className="text-sm text-gray-500">
+                  Select how far back you want to consider orders in waiting time calculations.
+                </p>
+                <div className="flex flex-wrap gap-2 mt-2">
+                  {timeWindowOptions.map((option) => (
+                    <button
+                      key={option.value}
+                      onClick={() => setSelectedTimeWindow(option.value)}
+                      className={`px-3 py-1.5 rounded-md text-sm ${
+                        selectedTimeWindow === option.value
+                          ? 'bg-[#015a6c] text-white'
+                          : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                      }`}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              
+              <div className="border-t border-gray-200 my-4"></div>
+              
+              {/* Non-working periods list */}
+              <div className="space-y-2">
+                <h3 className="text-lg font-medium">Non-working Periods</h3>
+                <p className="text-sm text-gray-500">
+                  These periods will be excluded from waiting time calculations.
+                </p>
+                
+                {nonWorkingPeriods.length > 0 ? (
+                  <div className="space-y-3 max-h-64 overflow-y-auto">
+                    {nonWorkingPeriods.map((period, index) => {
+                      const start = parseISO(period.start);
+                      const end = period.end ? parseISO(period.end) : new Date();
+                      const days = differenceInDays(end, start);
+                      
+                      return (
+                        <div key={index} className="flex items-center justify-between p-3 rounded-md bg-gray-50">
+                          <div>
+                            <div className="font-medium">
+                              {format(start, 'MMM d, yyyy')} - {period.end ? format(parseISO(period.end), 'MMM d, yyyy') : 'Ongoing'}
+                            </div>
+                            <div className="text-sm text-gray-500">
+                              {period.reason} ({days} day{days !== 1 ? 's' : ''})
+                            </div>
+                          </div>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              setNonWorkingPeriods(periods => periods.filter((_, i) => i !== index));
+                              toast({
+                                title: "Period Removed",
+                                description: "Non-working period has been removed",
+                              });
+                            }}
+                            className="text-red-500 hover:text-red-700"
+                          >
+                            <Trash className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="p-8 text-center">
+                    <Calendar className="h-10 w-10 text-gray-400 mx-auto mb-2" />
+                    <p className="text-gray-500">No non-working periods added yet.</p>
+                  </div>
+                )}
+                
+                {/* Add new period form */}
+                <div className="mt-4 p-4 border border-gray-200 rounded-md bg-gray-50">
+                  <h4 className="text-md font-medium mb-2">Add New Period</h4>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <Label htmlFor="start-date">Start Date</Label>
+                      <Input
+                        id="start-date"
+                        type="date"
+                        value={newNonWorkingPeriod.start}
+                        onChange={(e) => setNewNonWorkingPeriod(prev => ({
+                          ...prev,
+                          start: e.target.value
+                        }))}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label htmlFor="end-date">End Date (optional)</Label>
+                      <Input
+                        id="end-date"
+                        type="date"
+                        value={newNonWorkingPeriod.end}
+                        onChange={(e) => setNewNonWorkingPeriod(prev => ({
+                          ...prev,
+                          end: e.target.value
+                        }))}
+                      />
+                    </div>
+                    <div className="col-span-2 space-y-1">
+                      <Label htmlFor="reason">Reason (e.g., "Holiday", "Travel")</Label>
+                      <Input
+                        id="reason"
+                        placeholder="Reason for non-working period"
+                        value={newNonWorkingPeriod.reason}
+                        onChange={(e) => setNewNonWorkingPeriod(prev => ({
+                          ...prev,
+                          reason: e.target.value
+                        }))}
+                      />
+                    </div>
+                  </div>
+                  <Button
+                    className="w-full mt-4 bg-[#015a6c] hover:bg-[#01424f] text-white"
+                    onClick={() => {
+                      // Validate dates
+                      const startDate = parseISO(newNonWorkingPeriod.start);
+                      const endDate = newNonWorkingPeriod.end ? parseISO(newNonWorkingPeriod.end) : null;
+                      
+                      if (endDate && isBefore(endDate, startDate)) {
+                        toast({
+                          variant: "destructive",
+                          title: "Date Error",
+                          description: "End date must be after start date",
+                        });
+                        return;
+                      }
+                      
+                      // Add the new period
+                      setNonWorkingPeriods(prev => [...prev, {
+                        start: newNonWorkingPeriod.start,
+                        end: newNonWorkingPeriod.end,
+                        reason: newNonWorkingPeriod.reason || 'Non-working period'
+                      }]);
+                      
+                      // Reset form
+                      setNewNonWorkingPeriod({
+                        start: format(new Date(), 'yyyy-MM-dd'),
+                        end: format(addDays(new Date(), 7), 'yyyy-MM-dd'),
+                        reason: ''
+                      });
+                      
+                      toast({
+                        title: "Period Added",
+                        description: "Non-working period has been added",
+                      });
+                    }}
+                    disabled={!newNonWorkingPeriod.start || !newNonWorkingPeriod.reason}
+                  >
+                    <Plus className="h-4 w-4 mr-2" />
+                    Add Period
+                  </Button>
+                </div>
+              </div>
+            </div>
+            
+            <DialogFooter>
+              <Button
+                onClick={() => {
+                  setShowNonWorkingForm(false);
+                  // Refresh the orders with new calculation settings
+                  queryClient.invalidateQueries({ queryKey: ['/api/orders'] });
+                }}
+                className="bg-[#015a6c] hover:bg-[#01424f] text-white"
+              >
+                Save & Close
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </div>
+    </MainLayout>
+  );
+}

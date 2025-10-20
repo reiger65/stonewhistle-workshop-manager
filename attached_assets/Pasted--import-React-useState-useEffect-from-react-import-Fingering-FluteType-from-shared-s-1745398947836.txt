@@ -1,0 +1,94 @@
+
+import React, { useState, useEffect } from 'react';
+import { Fingering, FluteType } from '@shared/schema';
+import { getNoteForFingering } from './fluteData';
+import { getChordIdFromFingering } from './chordMappings';
+
+interface TunerFingeringDiagramProps {
+  fluteType: FluteType;
+  size?: "small" | "large";
+  onNoteDetected?: (note: string) => void;
+}
+
+export default function TunerFingeringDiagram({
+  fluteType,
+  size = "large",
+  onNoteDetected
+}: TunerFingeringDiagramProps) {
+  // State for the current detected note
+  const [detectedNote, setDetectedNote] = useState<string>("");
+  const [fingering, setFingering] = useState<Fingering>({
+    leftUpper: false,
+    leftLower: false,
+    rightUpper: false,
+    rightLower: false,
+    frontLeft: false,
+    frontRight: false
+  });
+
+  // SVG configuration based on size
+  const svgConfig = {
+    small: {
+      size: 180,
+      centerCircleRadius: 24,
+      holeRadius: 12,
+      outerCircleRadius: 50,
+      lineThickness: 3,
+      fontSize: 14,
+      noteOffset: 20,
+      armLengthRatio: 0.34
+    },
+    large: {
+      size: 280,
+      centerCircleRadius: 40,
+      holeRadius: 20,
+      outerCircleRadius: 80,
+      lineThickness: 4,
+      fontSize: 18,
+      noteOffset: 32,
+      armLengthRatio: 0.27
+    }
+  };
+
+  const config = svgConfig[size];
+  const center = config.size / 2;
+
+  // Calculate notes for current fingering
+  const frontNote = getNoteForFingering(fluteType, 'front', fingering.frontLeft, fingering.frontRight);
+  const leftNote = getNoteForFingering(fluteType, 'left', fingering.leftUpper, fingering.leftLower);
+  const rightNote = getNoteForFingering(fluteType, 'right', fingering.rightUpper, fingering.rightLower);
+
+  // Add pitch detection logic here - this is where you'll integrate your tuner
+  useEffect(() => {
+    // Initialize pitch detection
+    // Update detectedNote state when pitch is detected
+    // Call onNoteDetected prop with detected note
+  }, []);
+
+  return (
+    <div className="tuner-diagram">
+      {/* Reuse the SVG layout from InteractiveChordFinder */}
+      <svg 
+        width="100%" 
+        height="100%" 
+        viewBox={`0 0 ${config.size} ${config.size}`}
+        className="overflow-visible"
+      >
+        {/* Add your SVG elements here - same as InteractiveChordFinder */}
+        
+        {/* Show detected note in center instead of chord ID */}
+        <text 
+          x={center} 
+          y={center} 
+          textAnchor="middle" 
+          dominantBaseline="middle" 
+          fontSize={config.fontSize * 1.2} 
+          fontWeight="bold"
+          fill="black"
+        >
+          {detectedNote || "---"}
+        </text>
+      </svg>
+    </div>
+  );
+}

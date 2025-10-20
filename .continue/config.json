@@ -1,0 +1,13 @@
+{
+    "models": [
+      {
+        "title": "Gemini 2.0 Flash",
+        "provider": "google",
+        "model": "gemini-2.0-flash",
+        "apiKey": "AIza---VUL-HIER-JE-EIGEN-SLEUTEL-IN---"
+      }
+    ],
+    "defaultModel": "Gemini 2.0 Flash",
+    "autoSave": true
+  }
+  
