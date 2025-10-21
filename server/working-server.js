@@ -74,7 +74,34 @@ app.get('/api/resellers', (req, res) => {
   res.json([]);
 });
 
-// Authentication endpoints
+// Authentication endpoints - support both endpoints
+app.post('/api/login', (req, res) => {
+  console.log('🔐 Login requested (frontend endpoint)');
+  console.log('📝 Request body:', req.body);
+  const { username, password } = req.body;
+  console.log('👤 Username:', username);
+  console.log('🔑 Password received:', password);
+  console.log('🔑 Expected password: Johannes@@==2025');
+  
+  // Check for admin credentials
+  if (username === 'admin' && password === 'Johannes@@==2025') {
+    console.log('✅ Admin login successful');
+    res.json({ 
+      success: true, 
+      message: 'Login successful',
+      user: { id: 1, username: 'admin', role: 'admin' }
+    });
+  } else {
+    console.log('❌ Login failed - invalid credentials');
+    console.log('❌ Username match:', username === 'admin');
+    console.log('❌ Password match:', password === 'Johannes@@==2025');
+    res.status(401).json({ 
+      success: false, 
+      message: 'Invalid username or password' 
+    });
+  }
+});
+
 app.post('/api/auth/login', (req, res) => {
   console.log('🔐 Login requested');
   console.log('📝 Request body:', req.body);
@@ -105,6 +132,14 @@ app.post('/api/auth/login', (req, res) => {
 app.post('/api/auth/logout', (req, res) => {
   console.log('🚪 Logout requested');
   res.json({ success: true, message: 'Logout successful' });
+});
+
+// User endpoint for authentication check
+app.get('/api/user', (req, res) => {
+  console.log('👤 User endpoint requested');
+  // For now, return null to indicate no user is logged in
+  // In a real app, this would check session/cookies
+  res.json(null);
 });
 
 // Simple test login endpoint
