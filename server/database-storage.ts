@@ -30,103 +30,24 @@ export class DatabaseStorage implements IStorage {
   public sessionStore: session.Store;
 
   constructor() {
-    // Initialize with memory store first (safe fallback)
-    const MemoryStore = createMemoryStore(session);
-    this.sessionStore = new MemoryStore({
-      checkPeriod: 86400000, // Prune expired entries every 24h
+    // Initialize PostgreSQL session store
+    const PgStore = pgSessionStore(session);
+    this.sessionStore = new PgStore({
+      pool: pool,
+      tableName: 'session', // Default table name for connect-pg-simple
+      createTableIfMissing: true
     });
-    console.log("✅ Using memory session store (safe fallback)");
-    
-    // Try to upgrade to PostgreSQL session store asynchronously
-    this.initializePostgreSQLSessionStore();
-  }
-
-  private async initializePostgreSQLSessionStore() {
-    try {
-      // Test database connection first
-      const isConnected = await this.testDatabaseConnection();
-      if (!isConnected) {
-        console.warn("⚠️  Database not available, keeping memory session store");
-        return;
-      }
-
-      // Try to initialize PostgreSQL session store
-      const PgStore = pgSessionStore(session);
-      const pgStore = new PgStore({
-        pool: pool,
-        tableName: 'session', // Default table name for connect-pg-simple
-        createTableIfMissing: true
-      });
-      
-      // Test the PostgreSQL store
-      await new Promise((resolve, reject) => {
-        pgStore.get('test', (err) => {
-          if (err) reject(err);
-          else resolve(true);
-        });
-      });
-      
-      // If successful, replace the memory store
-      this.sessionStore = pgStore;
-      console.log("✅ Upgraded to PostgreSQL session store");
-    } catch (error) {
-      console.warn("⚠️  Failed to initialize PostgreSQL session store, keeping memory store:", error.message);
-    }
-  }
-
-  async checkDatabaseConnection(): Promise<boolean> {
-    try {
-      const result = await pool.query('SELECT 1 as connected');
-      return !!result.rows[0]?.connected;
-    } catch (error) {
-      console.warn("⚠️  Database connection test failed:", error.message);
-      return false;
-    }
-  }
-
-  private async testDatabaseConnection(): Promise<boolean> {
-    try {
-      // Check if DATABASE_URL is set and not pointing to localhost
-      if (!process.env.DATABASE_URL) {
-        console.warn("⚠️  DATABASE_URL not set");
-        return false;
-      }
-      
-      // Check if DATABASE_URL points to localhost (not suitable for Railway)
-      if (process.env.DATABASE_URL.includes('localhost') || 
-          process.env.DATABASE_URL.includes('127.0.0.1') ||
-          process.env.DATABASE_URL.includes('::1')) {
-        console.warn("⚠️  DATABASE_URL points to localhost, not suitable for Railway");
-        return false;
-      }
-      
-      const result = await pool.query('SELECT 1 as connected');
-      return !!result.rows[0]?.connected;
-    } catch (error) {
-      console.warn("⚠️  Database connection test failed:", error.message);
-      return false;
-    }
   }
 
   // User Authentication
   async getUser(id: number): Promise<User | undefined> {
-    try {
-      const [user] = await db.select().from(users).where(eq(users.id, id));
-      return user;
-    } catch (error) {
-      console.warn("⚠️  Database not available for getUser, returning undefined");
-      return undefined;
-    }
+    const [user] = await db.select().from(users).where(eq(users.id, id));
+    return user;
   }
 
   async getUserByUsername(username: string): Promise<User | undefined> {
-    try {
-      const [user] = await db.select().from(users).where(eq(users.username, username));
-      return user;
-    } catch (error) {
-      console.warn("⚠️  Database not available for getUserByUsername, returning undefined");
-      return undefined;
-    }
+    const [user] = await db.select().from(users).where(eq(users.username, username));
+    return user;
   }
 
   async createUser(userData: InsertUser): Promise<User> {

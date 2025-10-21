@@ -818,26 +818,20 @@ export async function syncShopifyOrders(period?: string, forceUpdate: boolean = 
         const customerEmail = shopifyOrder.customer?.email || '';
         
         if (customerEmail && (!existingOrderById.isReseller || !existingOrderById.resellerNickname)) {
-          try {
-            // Gebruik de slimme reseller detectie functie
-            const resellerDetection = await storage.detectResellerFromEmail(customerEmail);
+          // Gebruik de slimme reseller detectie functie
+          const resellerDetection = await storage.detectResellerFromEmail(customerEmail);
+          
+          if (resellerDetection.isReseller) {
+            console.log(`🔄 Reseller detectie voor bestaande order ${existingOrderById.orderNumber}: e-mail ${customerEmail} matcht met reseller ${resellerDetection.resellerNickname}`);
             
-            // Check if resellerDetection is valid and has the expected properties
-            if (resellerDetection && typeof resellerDetection === 'object' && resellerDetection.isReseller) {
-              console.log(`🔄 Reseller detectie voor bestaande order ${existingOrderById.orderNumber}: e-mail ${customerEmail} matcht met reseller ${resellerDetection.resellerNickname}`);
-              
-              // Update de order met de juiste reseller gegevens
-              await storage.updateOrder(existingOrderById.id, {
-                isReseller: true,
-                resellerNickname: resellerDetection.resellerNickname,
-                orderType: 'reseller'
-              });
-              
-              console.log(`✅ Order ${existingOrderById.orderNumber} bijgewerkt met reseller nickname: ${resellerDetection.resellerNickname}`);
-            }
-          } catch (error) {
-            console.warn(`⚠️  Reseller detection failed for existing order ${existingOrderById.orderNumber} email ${customerEmail}:`, error.message);
-            // Continue without reseller detection if it fails
+            // Update de order met de juiste reseller gegevens
+            await storage.updateOrder(existingOrderById.id, {
+              isReseller: true,
+              resellerNickname: resellerDetection.resellerNickname,
+              orderType: 'reseller'
+            });
+            
+            console.log(`✅ Order ${existingOrderById.orderNumber} bijgewerkt met reseller nickname: ${resellerDetection.resellerNickname}`);
           }
         }
         
@@ -1284,65 +1278,48 @@ export async function syncShopifyOrders(period?: string, forceUpdate: boolean = 
       let resellerNickname = null;
       
       if (customerEmail) {
-        try {
-          // Gebruik de nieuwe intelligente detectiefunctie om reseller status te bepalen
-          const resellerDetection = await storage.detectResellerFromEmail(customerEmail);
-          
-          // Check if resellerDetection is valid and has the expected properties
-          if (resellerDetection && typeof resellerDetection === 'object' && resellerDetection.isReseller) {
-            console.log(`Intelligente reseller detectie voor e-mail ${customerEmail}: gevonden reseller ${resellerDetection.resellerNickname}`);
-            isReseller = true;
-            resellerNickname = resellerDetection.resellerNickname;
-          }
-        } catch (error) {
-          console.warn(`⚠️  Reseller detection failed for email ${customerEmail}:`, error.message);
-          // Continue without reseller detection if it fails
+        // Gebruik de nieuwe intelligente detectiefunctie om reseller status te bepalen
+        const resellerDetection = await storage.detectResellerFromEmail(customerEmail);
+        
+        if (resellerDetection.isReseller) {
+          console.log(`Intelligente reseller detectie voor e-mail ${customerEmail}: gevonden reseller ${resellerDetection.resellerNickname}`);
+          isReseller = true;
+          resellerNickname = resellerDetection.resellerNickname;
         }
       }
       
-      let newOrder;
-      try {
-        newOrder = await storage.createOrder({
-          orderNumber: orderNumber,
-          shopifyOrderId: shopifyOrder.id.toString(),
-          customerName,
-          customerEmail: shopifyOrder.customer?.email || null,
-          customerPhone: shopifyOrder.customer?.phone || shippingAddress?.phone || null,
-          customerAddress: shippingAddress ? 
-            `${shippingAddress.address1}${shippingAddress.address2 ? ', ' + shippingAddress.address2 : ''}` : null,
-          customerCity: shippingAddress?.city || null,
-          customerState: shippingAddress?.province || null,
-          customerZip: shippingAddress?.zip || null,
-          customerCountry: shippingAddress?.country || null,
-          orderType: isReseller ? 'reseller' : 'retail', // Set as reseller if matched
-          isReseller: isReseller, // Auto-mark as reseller if matched
-          resellerNickname: resellerNickname, // Set the reseller nickname from matching order
-          status: 'ordered', // Initial status for new orders
-          orderDate: new Date(shopifyOrder.processed_at || shopifyOrder.created_at), // Convert string to Date object
-          deadline: null, // Deadline needs to be set manually
-          notes: shopifyOrder.note || '',
-          specifications: orderSpecs,
-          statusChangeDates: {}, // Start with empty status change dates so checkboxes are unchecked by default
-        });
-      } catch (error) {
-        console.error(`❌ Failed to create order ${orderNumber}:`, error.message);
-        throw new Error(`Failed to create order: ${error.message}`);
-      }
+      const newOrder = await storage.createOrder({
+        orderNumber: orderNumber,
+        shopifyOrderId: shopifyOrder.id.toString(),
+        customerName,
+        customerEmail: shopifyOrder.customer?.email || null,
+        customerPhone: shopifyOrder.customer?.phone || shippingAddress?.phone || null,
+        customerAddress: shippingAddress ? 
+          `${shippingAddress.address1}${shippingAddress.address2 ? ', ' + shippingAddress.address2 : ''}` : null,
+        customerCity: shippingAddress?.city || null,
+        customerState: shippingAddress?.province || null,
+        customerZip: shippingAddress?.zip || null,
+        customerCountry: shippingAddress?.country || null,
+        orderType: isReseller ? 'reseller' : 'retail', // Set as reseller if matched
+        isReseller: isReseller, // Auto-mark as reseller if matched
+        resellerNickname: resellerNickname, // Set the reseller nickname from matching order
+        status: 'ordered', // Initial status for new orders
+        orderDate: new Date(shopifyOrder.processed_at || shopifyOrder.created_at), // Convert string to Date object
+        deadline: null, // Deadline needs to be set manually
+        notes: shopifyOrder.note || '',
+        specifications: orderSpecs,
+        statusChangeDates: {}, // Start with empty status change dates so checkboxes are unchecked by default
+      });
       
       // Als er een opmerking is bij de Shopify order, voeg deze toe als production note
       if (shopifyOrder.note) {
-        try {
-          await storage.createProductionNote({
-            orderId: newOrder.id,
-            note: shopifyOrder.note,
-            createdBy: 'Shopify Klant',
-            source: 'shopify', // Markeer deze opmerking als afkomstig van Shopify
-          });
-          console.log(`✅ Shopify opmerking toegevoegd als production note voor order ${newOrder.orderNumber}`);
-        } catch (error) {
-          console.warn(`⚠️  Failed to create production note for order ${orderNumber}:`, error.message);
-          // Continue without production note if it fails
-        }
+        await storage.createProductionNote({
+          orderId: newOrder.id,
+          note: shopifyOrder.note,
+          createdBy: 'Shopify Klant',
+          source: 'shopify', // Markeer deze opmerking als afkomstig van Shopify
+        });
+        console.log(`✅ Shopify opmerking toegevoegd als production note voor order ${newOrder.orderNumber}`);
       }
       
       // All line items, including fulfilled ones, for tracking purposes

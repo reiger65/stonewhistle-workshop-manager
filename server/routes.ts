@@ -22,7 +22,7 @@ import fs from 'fs';
 import path from 'path';
 import { eq, sql } from 'drizzle-orm';
 import { checkSerialNumberInDatabase, getSpecificationsFromDatabase, SERIAL_NUMBER_DATABASE, SHOPIFY_LINE_ITEM_TO_SERIAL_NUMBER, getSerialNumberByShopifyLineItem } from '../shared/serial-number-database';
-import { db, checkDatabaseConnection } from './db';
+import { db } from './db';
 import backupRoutes from './backup-routes.js';
 import backupsManagementRoutes from './routes/backups';
 import databaseManagerRoutes from './routes/database-manager.js';
@@ -38,13 +38,6 @@ import { initStatusWebsocket, getPublicSystemStatus } from './system-status';
 import { registerTimerRoutes } from './timer-routes';
 
 export async function registerRoutes(app: Express): Promise<Server> {
-  console.log("🔧 Registering routes...");
-  
-  // Add a very basic test route first
-  app.get("/test", (req, res) => {
-    res.json({ message: "Server is working!" });
-  });
-
   // Laad alle Shopify line item -> serienummer mappings uit de database
   // zodat serienummers consistent blijven tussen server herstarts
   // Doe dit asynchroon om server opstart niet te vertragen
@@ -201,25 +194,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.error("Fout bij ophalen van systeemstatus:", error);
       res.status(500).json({ error: "Kan systeemstatus niet ophalen" });
     }
-  });
-
-  // Health check endpoint for Railway - SIMPLIFIED
-  app.get("/api/health", (req, res) => {
-    console.log("🏥 Health check requested");
-    res.status(200).json({ 
-      status: "healthy", 
-      timestamp: new Date().toISOString(),
-      uptime: process.uptime()
-    });
-  });
-
-  // Basic health check that works even if database is down
-  app.get("/health", (req, res) => {
-    console.log("🏥 Basic health check requested");
-    res.status(200).json({ 
-      status: "ok",
-      message: "Server is running"
-    });
   });
   
   // SINGLE ENDPOINT for not-started items that works for both the worksheet and NextInstrumentBanner component
@@ -632,26 +606,155 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Get all order items (for the worksheet view) - OPTIMIZED FOR PERFORMANCE
+  // Get all order items (for the worksheet view) (beperkt tot afgelopen 6 maanden voor betere prestaties)
   app.get("/api/order-items", async (req, res) => {
     try {
-      console.log(`📋 PERFORMANCE: Fetching order items (optimized)`);
+      console.log(`\n‒‒‒‒‒‒‒‒‒‒‒‒‒‒‒‒‒‒‒‒‒‒‒‒‒‒‒‒‒‒‒‒‒‒‒‒‒‒‒‒‒‒‒‒‒‒‒‒‒‒‒‒‒‒‒‒‒‒‒‒‒‒‒‒‒‒‒‒‒‒‒‒‒‒‒‒‒‒‒‒‒`);
+      console.log(`📋 SERIENUMMERS: Fetching order items`);
+      console.log(`🔑 SERIENUMMER DATABASE: ${Object.keys(SERIAL_NUMBER_DATABASE).length} vaste serienummers in database`);
+      console.log(`🔗 SHOPIFY MAPPING DATABASE: ${Object.keys(SHOPIFY_LINE_ITEM_TO_SERIAL_NUMBER).length} permanente koppelingen in database`);
       
-      // Use the direct database method for maximum speed
-      const allItems = await storage.getAllOrderItems();
+      // Debug voor line item mappings
+      console.log(`✅ SERIENUMMER MAPPINGS worden gecontroleerd voor consistente toewijzingen`);
       
-      // Minimal processing - just normalize orderId
-      const normalizedItems = allItems.map(item => ({
-        ...item,
-        orderId: Number(item.orderId)
-      }));
+      // Get all orders without filtering for now
+      const allOrders = await storage.getOrders();
       
-      console.log(`✅ PERFORMANCE: Loaded ${normalizedItems.length} items quickly`);
+      // Gebruik de serienummerdatabase om waardes consistent te houden voor serienummers
+      // Dit zorgt ervoor dat dezelfde fluit ALTIJD dezelfde gegevens toont ongeacht filterinstellingen
       
-      // Set cache headers for better performance
-      res.setHeader('Cache-Control', 'public, max-age=300'); // 5 minutes cache
+      // Gebruik een Set om unieke item ids bij te houden, dit helpt dubbele invoegingen te voorkomen
+      const processedItemIds = new Set<number>();
+      const allItems: OrderItem[] = [];
       
-      res.json(normalizedItems);
+      console.log(`Fetching items for ${allOrders.length} orders`);
+      
+      // SPECIALE BILLY-ORDER FIX: Na grondig database-onderzoek en het controleren van de Shopify screenshots,
+      // weten we dat er in database per Billy order 4 items staan, terwijl er in Shopify maar 2 
+      // zichtbare items per order zijn. De andere 2 items zijn gemarkeerd als "Removed" in Shopify.
+      // We moeten dus alleen de actieve/geldige items tonen.
+      
+      // Deze filter bepaalt welke items we voor de Billy orders willen tonen
+      // Volgens de screenshots: 
+      // For each order, get its items and add to our array in chronological order
+      for (const order of allOrders) {
+        
+        const items = await storage.getOrderItems(order.id);
+        
+        // Normaliseer orderId naar nummer voordat het naar de client wordt gestuurd
+        const normalizedItems = items.map(item => {
+          const normalizedItem = { ...item };
+          normalizedItem.orderId = Number(normalizedItem.orderId);
+          return normalizedItem;
+        });
+        
+        // VERBETERDE DIAGNOSTISCHE LOGGING - controleer statusChangeDates per item
+        for (const item of normalizedItems) {
+          if (item.statusChangeDates) {
+            // Log items met BUILD checkbox
+            if (typeof item.statusChangeDates === 'object' && 'building' in item.statusChangeDates) {
+              console.log(`ORDER ITEM [${item.serialNumber || item.id}] heeft BUILD checkbox aangevinkt op ${item.statusChangeDates.building}`);
+            }
+            
+            // Log ook andere checkboxes
+            if (typeof item.statusChangeDates === 'object') {
+              const statusKeys = Object.keys(item.statusChangeDates);
+              if (statusKeys.length > 0) {
+                console.log(`ORDER ITEM [${item.serialNumber || item.id}] heeft deze checkboxes: ${statusKeys.join(', ')}`);
+              }
+            }
+          }
+        }
+        
+        // DUPLICATE CHECK & BILLY-ORDER FIX: Filter items op basis van ons inzicht van de Shopify screenshots
+        for (const item of normalizedItems) {
+          // Skip als we dit item-id al hebben verwerkt
+          if (processedItemIds.has(item.id)) {
+            console.log(`[DEDUPLICATIE SERVER] Vermijden dubbele toevoeging van item ${item.id} (${item.serialNumber}) voor order ${item.orderId}`);
+            continue;
+          }
+          
+          // We gebruiken nu de generieke Shopify synchronisatie om verwijderde items bij te houden
+          // Deze automatische synchronisatie verwijdert items die in Shopify als "removed" zijn gemarkeerd (fulfillable_quantity = 0)
+          
+          // NIEUWE VERBETERDE STAP: Controleer eerst op Shopify line item mapping
+          // Dit zorgt ervoor dat serienummer suffixen consistent blijven bij heropstarten van de server
+          if (item.shopifyLineItemId) {
+            const mappedSerialNumber = getSerialNumberByShopifyLineItem(item.shopifyLineItemId);
+            if (mappedSerialNumber && mappedSerialNumber !== item.serialNumber) {
+              console.log(`⚠️ SERIENUMMER CORRECTIE: Item met shopifyLineItemId ${item.shopifyLineItemId} had serial ${item.serialNumber} maar is permanent gekoppeld aan ${mappedSerialNumber}`);
+              // Update serienummer naar de permanente mapping
+              item.serialNumber = mappedSerialNumber;
+            }
+          }
+        
+          // Controleer nu serienummer in de database en pas specificaties aan indien nodig
+          if (item.serialNumber && checkSerialNumberInDatabase(item.serialNumber)) {
+            // Haal specificaties op uit de database
+            const dbSpecs = getSpecificationsFromDatabase(item.serialNumber);
+            
+            if (dbSpecs) {
+              console.log(`✅ SERIENUMMER DATABASE: ${item.serialNumber} gevonden, vaste waardes toepassen`);
+              
+              // Database specifications will be applied consistently
+              
+              // Update item met definitieve database-specificaties
+              item.itemType = `${dbSpecs.type} ${dbSpecs.tuning}`;  // VERBETERD: Combineer type en tuning in het itemType veld
+              item.tuningType = dbSpecs.tuning;
+              
+              // Update frequency
+              if (dbSpecs.frequency) {
+                // Zorg ervoor dat specifications object bestaat
+                if (!item.specifications) {
+                  item.specifications = {};
+                } else if (typeof item.specifications === 'string') {
+                  try {
+                    item.specifications = JSON.parse(item.specifications);
+                  } catch (e) {
+                    item.specifications = {};
+                  }
+                }
+                
+                // Update item specificaties voor volledige consistentie
+                item.specifications.fluteType = dbSpecs.type;
+                item.specifications.type = dbSpecs.type;
+                item.specifications.model = dbSpecs.type;
+                item.specifications.tuning = dbSpecs.tuning;
+                
+                // Update frequency in specifications
+                item.specifications.frequency = dbSpecs.frequency;
+                item.specifications.tuningFrequency = dbSpecs.frequency;
+              }
+              
+              // Update kleur als deze bestaat
+              if (dbSpecs.color) {
+                item.color = dbSpecs.color;
+                
+                if (typeof item.specifications === 'object') {
+                  item.specifications.color = dbSpecs.color;
+                }
+              }
+              
+              // All items are processed consistently with database specifications
+            }
+          }
+          
+          // Voeg item toe aan allItems en markeer als verwerkt
+          allItems.push(item);
+          processedItemIds.add(item.id);
+        }
+      }
+      
+      // Debug log voor totaal aantal items
+      
+      console.log(`Totaal aantal items: ${allItems.length}`);
+      
+      // Stuur geen 304 maar dwing een nieuwe respons af
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('Expires', '0');
+      
+      res.json(allItems);
     } catch (error) {
       console.error("Error fetching order items:", error);
       res.status(500).json({ message: "Failed to fetch all order items" });

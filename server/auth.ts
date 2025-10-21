@@ -87,27 +87,31 @@ export function setupAuth(app: Express): void {
       try {
         console.log("Login attempt for:", username);
         console.log("Login attempt with username:", username);
-        console.log("Password received:", password);
-        console.log("Expected password: Johannes@@==2025");
         
-        // Use hardcoded credentials for development
-        if (username === 'admin' && password === 'Johannes@@==2025') {
-          console.log("✅ Admin login successful (hardcoded)");
-          
-          // Return user without password
-          const authenticatedUser = {
-            id: 1,
-            username: 'admin',
-            role: "admin"
-          };
-          
-          return done(null, authenticatedUser);
+        // Get user from database
+        const user = await storage.getUserByUsername(username);
+        if (!user) {
+          console.log("User not found:", username);
+          return done(null, false, { message: "Invalid username or password" });
         }
         
-        console.log("❌ Login failed - invalid credentials");
-        console.log("❌ Username match:", username === 'admin');
-        console.log("❌ Password match:", password === 'Johannes@@==2025');
-        return done(null, false, { message: "Invalid username or password" });
+        // Compare passwords using the same hashing method
+        const isValidPassword = await comparePasswords(password, user.password);
+        if (!isValidPassword) {
+          console.log("Login failed - invalid credentials");
+          return done(null, false, { message: "Invalid username or password" });
+        }
+        
+        console.log("Login successful for user:", username);
+        
+        // Return user without password
+        const authenticatedUser = {
+          id: user.id,
+          username: user.username,
+          role: "admin"
+        };
+        
+        return done(null, authenticatedUser);
       } catch (error) {
         console.error("Authentication error:", error);
         return done(error);
@@ -123,11 +127,12 @@ export function setupAuth(app: Express): void {
   // Deserialize user from the session
   passport.deserializeUser(async (id: number, done) => {
     try {
-      // For hardcoded admin user
-      if (id === 1) {
+      const user = await storage.getUser(id);
+      if (user) {
+        // Return user without password
         const authenticatedUser = {
-          id: 1,
-          username: 'admin',
+          id: user.id,
+          username: user.username,
           role: "admin"
         };
         return done(null, authenticatedUser);

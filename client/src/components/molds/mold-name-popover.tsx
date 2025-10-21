@@ -397,34 +397,22 @@ export function MoldNamePopover({ children, instrumentType, tuningNote, frequenc
                       <div className="text-right text-gray-600">Order:</div>
                       <div className="text-left font-bold col-span-2">
                         {(() => {
-                          // ALWAYS use the serial number if provided - this is the most accurate way
-                          // to ensure consistent display between list and popup
-                          if (serialNumber) {
-                            // Remove "SW-" prefix if present
-                            return serialNumber.replace('SW-', '');
-                          }
-                          
-                          // Fallback to using orderNumber + position only if serialNumber unavailable
+                          // Format: orderNum without SW- prefix
                           if (orderNumber) {
                             const orderNum = orderNumber.replace('SW-', '');
                             
-                            // If we have item position information
-                            if (itemPosition && itemPosition.includes('/')) {
-                              // Get current position (first digit before the slash)
+                            // Only add suffix for orders with multiple items
+                            if (itemPosition && itemPosition.includes('/') && itemPosition.split('/')[1] !== '1') {
+                              // Get the first digit of itemPosition (before the "/")
                               const itemPos = itemPosition.split('/')[0];
-                              const totalItems = itemPosition.split('/')[1];
-                              
-                              // Always include suffix for multi-item orders
-                              if (parseInt(totalItems) > 1) {
-                                return `${orderNum}-${itemPos}`;
-                              }
+                              return `${orderNum}-${itemPos}`;
                             }
                             
                             // For single orders, just show the order number without suffix
                             return orderNum;
                           }
                           
-                          // Fallback for rare cases where both serialNumber and orderNumber are missing
+                          // Fallback for rare cases where orderNumber is missing
                           return '?';
                         })()}
                       </div>

@@ -260,24 +260,6 @@ div[data-tuning-note] {
   --reseller-bg: #59296e;
   --reseller-text: #ffffff;
   
-  /* Design system variables */
-  --background: 0 0% 100%;
-  --foreground: 222.2 84% 4.9%;
-  --primary: 222.2 47.4% 11.2%;
-  --primary-foreground: 210 40% 98%;
-  --secondary: 210 40% 96%;
-  --secondary-foreground: 222.2 47.4% 11.2%;
-  --muted: 210 40% 96%;
-  --muted-foreground: 215.4 16.3% 46.9%;
-  --accent: 210 40% 96%;
-  --accent-foreground: 222.2 47.4% 11.2%;
-  --destructive: 0 84.2% 60.2%;
-  --destructive-foreground: 210 40% 98%;
-  --border: 214.3 31.8% 91.4%;
-  --input: 214.3 31.8% 91.4%;
-  --ring: 222.2 84% 4.9%;
-  --radius: 0.5rem;
-  
   /* Left column styling (order number column) */
   --left-column-bg: #f5f5f7; /* Grey background instead of green */
   --left-column-text: #000000; /* Black text */
@@ -1222,21 +1204,6 @@ tr.multi-item-row.selected-row td:nth-child(17) /* LAB */ {
   background-color: #3b82f6 !important;
   color: white !important;
   border-color: #3b82f6 !important;
-}
-
-/* Ensure all checkboxes have rounded corners */
-[role="checkbox"] {
-  border-radius: 0.375rem !important; /* rounded-md */
-}
-
-/* Ensure buttons and other elements have proper rounded corners */
-button, .btn, .button {
-  border-radius: 0.375rem !important;
-}
-
-/* Ensure input fields have rounded corners */
-input, textarea, select {
-  border-radius: 0.375rem !important;
 }
 
 /* Lichtere outline rond checkboxes in multi-item orders - specifiek voor status checkboxes */
