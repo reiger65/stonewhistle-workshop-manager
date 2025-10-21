@@ -900,6 +900,14 @@ class HybridStorage implements IStorage {
     try {
       console.log("🔍 Initializing database connection...");
       console.log("🔗 DATABASE_URL:", process.env.DATABASE_URL ? "SET" : "NOT SET");
+      console.log("🔗 RAILWAY_ENVIRONMENT:", process.env.RAILWAY_ENVIRONMENT ? "YES" : "NO");
+      
+      // For Railway, always try to use database if DATABASE_URL is set
+      if (process.env.RAILWAY_ENVIRONMENT && process.env.DATABASE_URL) {
+        console.log("🚂 Railway environment detected - forcing database usage");
+        this.useDatabase = true;
+        return;
+      }
       
       // Check if DATABASE_URL is set and not pointing to localhost
       if (!process.env.DATABASE_URL) {
