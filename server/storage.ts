@@ -835,10 +835,9 @@ export class MemStorage implements IStorage {
 
 // Import the DatabaseStorage implementation
 import { DatabaseStorage } from "./database-storage";
-import { MemStorage } from "./storage";
 
 // Create a hybrid storage that can work with or without database
-class HybridStorage {
+class HybridStorage implements IStorage {
   private databaseStorage: DatabaseStorage;
   private memStorage: MemStorage;
   private useDatabase: boolean = false;
@@ -889,277 +888,563 @@ class HybridStorage {
     return this.databaseStorage.sessionStore;
   }
 
-  // Delegate all methods to the appropriate storage
-  async getUser(id: number) {
+  // Helper method to delegate to appropriate storage
+  private async delegate<T>(databaseMethod: () => Promise<T>, memoryMethod: () => Promise<T>): Promise<T> {
     if (this.useDatabase) {
       try {
-        return await this.databaseStorage.getUser(id);
+        return await databaseMethod();
       } catch (error) {
-        console.warn("⚠️  Database getUser failed, falling back to memory storage");
+        console.warn("⚠️  Database operation failed, falling back to memory storage:", error.message);
         this.useDatabase = false;
       }
     }
-    return this.memStorage.getUser(id);
+    return memoryMethod();
   }
 
-  async getUserByUsername(username: string) {
-    if (this.useDatabase) {
-      try {
-        return await this.databaseStorage.getUserByUsername(username);
-      } catch (error) {
-        console.warn("⚠️  Database getUserByUsername failed, falling back to memory storage");
-        this.useDatabase = false;
-      }
-    }
-    return this.memStorage.getUserByUsername(username);
+  // User Authentication
+  async getUser(id: number): Promise<User | undefined> {
+    return this.delegate(
+      () => this.databaseStorage.getUser(id),
+      () => this.memStorage.getUser(id)
+    );
   }
 
-  async createUser(userData: any) {
-    if (this.useDatabase) {
-      try {
-        return await this.databaseStorage.createUser(userData);
-      } catch (error) {
-        console.warn("⚠️  Database createUser failed, falling back to memory storage");
-        this.useDatabase = false;
-      }
-    }
-    return this.memStorage.createUser(userData);
+  async getUserByUsername(username: string): Promise<User | undefined> {
+    return this.delegate(
+      () => this.databaseStorage.getUserByUsername(username),
+      () => this.memStorage.getUserByUsername(username)
+    );
   }
 
-  // Delegate all other methods...
-  async getOrders() {
-    if (this.useDatabase) {
-      try {
-        return await this.databaseStorage.getOrders();
-      } catch (error) {
-        this.useDatabase = false;
-      }
-    }
-    return this.memStorage.getOrders();
+  async createUser(userData: InsertUser): Promise<User> {
+    return this.delegate(
+      () => this.databaseStorage.createUser(userData),
+      () => this.memStorage.createUser(userData)
+    );
   }
 
-  async getOrdersSince(date: Date) {
-    if (this.useDatabase) {
-      try {
-        return await this.databaseStorage.getOrdersSince(date);
-      } catch (error) {
-        this.useDatabase = false;
-      }
-    }
-    return this.memStorage.getOrdersSince(date);
+  // Orders
+  async getOrders(): Promise<Order[]> {
+    return this.delegate(
+      () => this.databaseStorage.getOrders(),
+      () => this.memStorage.getOrders()
+    );
   }
 
-  async getOrdersByStatus(status: any) {
-    if (this.useDatabase) {
-      try {
-        return await this.databaseStorage.getOrdersByStatus(status);
-      } catch (error) {
-        this.useDatabase = false;
-      }
-    }
-    return this.memStorage.getOrdersByStatus(status);
+  async getOrdersSince(date: Date): Promise<Order[]> {
+    return this.delegate(
+      () => this.databaseStorage.getOrdersSince(date),
+      () => this.memStorage.getOrdersSince(date)
+    );
   }
 
-  async getOrdersByCustomerEmail(email: string) {
-    if (this.useDatabase) {
-      try {
-        return await this.databaseStorage.getOrdersByCustomerEmail(email);
-      } catch (error) {
-        this.useDatabase = false;
-      }
-    }
-    return this.memStorage.getOrdersByCustomerEmail(email);
+  async getOrdersByStatus(status: OrderStatus): Promise<Order[]> {
+    return this.delegate(
+      () => this.databaseStorage.getOrdersByStatus(status),
+      () => this.memStorage.getOrdersByStatus(status)
+    );
   }
 
-  async getOrderById(id: number) {
-    if (this.useDatabase) {
-      try {
-        return await this.databaseStorage.getOrderById(id);
-      } catch (error) {
-        this.useDatabase = false;
-      }
-    }
-    return this.memStorage.getOrderById(id);
+  async getOrdersByCustomerEmail(email: string): Promise<Order[]> {
+    return this.delegate(
+      () => this.databaseStorage.getOrdersByCustomerEmail(email),
+      () => this.memStorage.getOrdersByCustomerEmail(email)
+    );
   }
 
-  async getOrderByOrderNumber(orderNumber: string) {
-    if (this.useDatabase) {
-      try {
-        return await this.databaseStorage.getOrderByOrderNumber(orderNumber);
-      } catch (error) {
-        this.useDatabase = false;
-      }
-    }
-    return this.memStorage.getOrderByOrderNumber(orderNumber);
+  async getOrderById(id: number): Promise<Order | undefined> {
+    return this.delegate(
+      () => this.databaseStorage.getOrderById(id),
+      () => this.memStorage.getOrderById(id)
+    );
   }
 
-  async getOrderByShopifyId(shopifyId: string) {
-    if (this.useDatabase) {
-      try {
-        return await this.databaseStorage.getOrderByShopifyId(shopifyId);
-      } catch (error) {
-        this.useDatabase = false;
-      }
-    }
-    return this.memStorage.getOrderByShopifyId(shopifyId);
+  async getOrderByOrderNumber(orderNumber: string): Promise<Order | undefined> {
+    return this.delegate(
+      () => this.databaseStorage.getOrderByOrderNumber(orderNumber),
+      () => this.memStorage.getOrderByOrderNumber(orderNumber)
+    );
   }
 
-  async createOrder(order: any) {
-    if (this.useDatabase) {
-      try {
-        return await this.databaseStorage.createOrder(order);
-      } catch (error) {
-        this.useDatabase = false;
-      }
-    }
-    return this.memStorage.createOrder(order);
+  async getOrderByShopifyId(shopifyId: string): Promise<Order | undefined> {
+    return this.delegate(
+      () => this.databaseStorage.getOrderByShopifyId(shopifyId),
+      () => this.memStorage.getOrderByShopifyId(shopifyId)
+    );
   }
 
-  async updateOrder(id: number, order: any) {
-    if (this.useDatabase) {
-      try {
-        return await this.databaseStorage.updateOrder(id, order);
-      } catch (error) {
-        this.useDatabase = false;
-      }
-    }
-    return this.memStorage.updateOrder(id, order);
+  async createOrder(order: InsertOrder): Promise<Order> {
+    return this.delegate(
+      () => this.databaseStorage.createOrder(order),
+      () => this.memStorage.createOrder(order)
+    );
   }
 
-  async updateOrderStatus(id: number, status: any) {
-    if (this.useDatabase) {
-      try {
-        return await this.databaseStorage.updateOrderStatus(id, status);
-      } catch (error) {
-        this.useDatabase = false;
-      }
-    }
-    return this.memStorage.updateOrderStatus(id, status);
+  async updateOrder(id: number, order: Partial<Order>): Promise<Order | undefined> {
+    return this.delegate(
+      () => this.databaseStorage.updateOrder(id, order),
+      () => this.memStorage.updateOrder(id, order)
+    );
   }
 
-  async getAllOrderItems(includeArchived?: boolean) {
-    if (this.useDatabase) {
-      try {
-        return await this.databaseStorage.getAllOrderItems(includeArchived);
-      } catch (error) {
-        this.useDatabase = false;
-      }
-    }
-    return this.memStorage.getAllOrderItems(includeArchived);
+  async updateOrderStatus(id: number, status: OrderStatus): Promise<Order | undefined> {
+    return this.delegate(
+      () => this.databaseStorage.updateOrderStatus(id, status),
+      () => this.memStorage.updateOrderStatus(id, status)
+    );
   }
 
-  async getOrderItems(orderId: number, includeArchived?: boolean) {
-    if (this.useDatabase) {
-      try {
-        return await this.databaseStorage.getOrderItems(orderId, includeArchived);
-      } catch (error) {
-        this.useDatabase = false;
-      }
-    }
-    return this.memStorage.getOrderItems(orderId, includeArchived);
+  // Order Items
+  async getAllOrderItems(includeArchived?: boolean): Promise<OrderItem[]> {
+    return this.delegate(
+      () => this.databaseStorage.getAllOrderItems(includeArchived),
+      () => this.memStorage.getAllOrderItems(includeArchived)
+    );
   }
 
-  async getOrderItemsByOrderId(orderId: number) {
-    if (this.useDatabase) {
-      try {
-        return await this.databaseStorage.getOrderItemsByOrderId(orderId);
-      } catch (error) {
-        this.useDatabase = false;
-      }
-    }
-    return this.memStorage.getOrderItemsByOrderId(orderId);
+  async getOrderItems(orderId: number, includeArchived?: boolean): Promise<OrderItem[]> {
+    return this.delegate(
+      () => this.databaseStorage.getOrderItems(orderId, includeArchived),
+      () => this.memStorage.getOrderItems(orderId, includeArchived)
+    );
   }
 
-  async getAllOrderItemsByOrderId(orderId: number, includeArchived?: boolean) {
-    if (this.useDatabase) {
-      try {
-        return await this.databaseStorage.getAllOrderItemsByOrderId(orderId, includeArchived);
-      } catch (error) {
-        this.useDatabase = false;
-      }
-    }
-    return this.memStorage.getAllOrderItemsByOrderId(orderId, includeArchived);
+  async getOrderItemsByOrderId(orderId: number): Promise<OrderItem[]> {
+    return this.delegate(
+      () => this.databaseStorage.getOrderItemsByOrderId(orderId),
+      () => this.memStorage.getOrderItemsByOrderId(orderId)
+    );
   }
 
-  async getOrderItemById(id: number) {
-    if (this.useDatabase) {
-      try {
-        return await this.databaseStorage.getOrderItemById(id);
-      } catch (error) {
-        this.useDatabase = false;
-      }
-    }
-    return this.memStorage.getOrderItemById(id);
+  async getAllOrderItemsByOrderId(orderId: number, includeArchived?: boolean): Promise<OrderItem[]> {
+    return this.delegate(
+      () => this.databaseStorage.getAllOrderItemsByOrderId(orderId, includeArchived),
+      () => this.memStorage.getAllOrderItemsByOrderId(orderId, includeArchived)
+    );
   }
 
-  async getOrderItemBySerialNumber(serialNumber: string) {
-    if (this.useDatabase) {
-      try {
-        return await this.databaseStorage.getOrderItemBySerialNumber(serialNumber);
-      } catch (error) {
-        this.useDatabase = false;
-      }
-    }
-    return this.memStorage.getOrderItemBySerialNumber(serialNumber);
+  async getOrderItemById(id: number): Promise<OrderItem | undefined> {
+    return this.delegate(
+      () => this.databaseStorage.getOrderItemById(id),
+      () => this.memStorage.getOrderItemById(id)
+    );
   }
 
-  async createOrderItem(item: any) {
-    if (this.useDatabase) {
-      try {
-        return await this.databaseStorage.createOrderItem(item);
-      } catch (error) {
-        this.useDatabase = false;
-      }
-    }
-    return this.memStorage.createOrderItem(item);
+  async getOrderItemBySerialNumber(serialNumber: string): Promise<OrderItem | undefined> {
+    return this.delegate(
+      () => this.databaseStorage.getOrderItemBySerialNumber(serialNumber),
+      () => this.memStorage.getOrderItemBySerialNumber(serialNumber)
+    );
   }
 
-  async updateOrderItem(id: number, item: any) {
-    if (this.useDatabase) {
-      try {
-        return await this.databaseStorage.updateOrderItem(id, item);
-      } catch (error) {
-        this.useDatabase = false;
-      }
-    }
-    return this.memStorage.updateOrderItem(id, item);
+  async createOrderItem(item: InsertOrderItem): Promise<OrderItem> {
+    return this.delegate(
+      () => this.databaseStorage.createOrderItem(item),
+      () => this.memStorage.createOrderItem(item)
+    );
   }
 
-  async deleteOrderItem(id: number) {
-    if (this.useDatabase) {
-      try {
-        return await this.databaseStorage.deleteOrderItem(id);
-      } catch (error) {
-        this.useDatabase = false;
-      }
-    }
-    return this.memStorage.deleteOrderItem(id);
+  async updateOrderItem(id: number, item: Partial<OrderItem>): Promise<OrderItem | undefined> {
+    return this.delegate(
+      () => this.databaseStorage.updateOrderItem(id, item),
+      () => this.memStorage.updateOrderItem(id, item)
+    );
   }
 
-  async archiveOrderItem(id: number) {
-    if (this.useDatabase) {
-      try {
-        return await this.databaseStorage.archiveOrderItem(id);
-      } catch (error) {
-        this.useDatabase = false;
-      }
-    }
-    return this.memStorage.archiveOrderItem(id);
+  async updateOrderItemStatus(id: number, status: OrderStatus): Promise<OrderItem | undefined> {
+    return this.delegate(
+      () => this.databaseStorage.updateOrderItemStatus(id, status),
+      () => this.memStorage.updateOrderItemStatus(id, status)
+    );
   }
 
-  async unarchiveOrderItem(id: number) {
-    if (this.useDatabase) {
-      try {
-        return await this.databaseStorage.unarchiveOrderItem(id);
-      } catch (error) {
-        this.useDatabase = false;
-      }
-    }
-    return this.memStorage.unarchiveOrderItem(id);
+  async deleteOrderItem(id: number): Promise<boolean> {
+    return this.delegate(
+      () => this.databaseStorage.deleteOrderItem(id),
+      () => this.memStorage.deleteOrderItem(id)
+    );
   }
 
-  // Add all other methods from IStorage interface...
-  // For now, let's add the essential ones that are causing the errors
+  async archiveOrderItem(id: number): Promise<boolean> {
+    return this.delegate(
+      () => this.databaseStorage.archiveOrderItem(id),
+      () => this.memStorage.archiveOrderItem(id)
+    );
+  }
+
+  async unarchiveOrderItem(id: number): Promise<boolean> {
+    return this.delegate(
+      () => this.databaseStorage.unarchiveOrderItem(id),
+      () => this.memStorage.unarchiveOrderItem(id)
+    );
+  }
+
+  // Reseller Detection
+  async getResellerByEmail(email: string): Promise<Reseller | undefined> {
+    return this.delegate(
+      () => this.databaseStorage.getResellerByEmail(email),
+      () => this.memStorage.getResellerByEmail(email)
+    );
+  }
+
+  async detectResellerFromEmail(email: string): Promise<{isReseller: boolean, resellerNickname: string | null}> {
+    return this.delegate(
+      () => this.databaseStorage.detectResellerFromEmail(email),
+      () => this.memStorage.detectResellerFromEmail(email)
+    );
+  }
+
+  // Production Notes
+  async getProductionNotes(orderId: number): Promise<ProductionNote[]> {
+    return this.delegate(
+      () => this.databaseStorage.getProductionNotes(orderId),
+      () => this.memStorage.getProductionNotes(orderId)
+    );
+  }
+
+  async getItemProductionNotes(itemId: number): Promise<ProductionNote[]> {
+    return this.delegate(
+      () => this.databaseStorage.getItemProductionNotes(itemId),
+      () => this.memStorage.getItemProductionNotes(itemId)
+    );
+  }
+
+  async createProductionNote(note: InsertProductionNote): Promise<ProductionNote> {
+    return this.delegate(
+      () => this.databaseStorage.createProductionNote(note),
+      () => this.memStorage.createProductionNote(note)
+    );
+  }
+
+  // Materials Inventory
+  async getAllMaterials(): Promise<MaterialInventory[]> {
+    return this.delegate(
+      () => this.databaseStorage.getAllMaterials(),
+      () => this.memStorage.getAllMaterials()
+    );
+  }
+
+  async getMaterialById(id: number): Promise<MaterialInventory | undefined> {
+    return this.delegate(
+      () => this.databaseStorage.getMaterialById(id),
+      () => this.memStorage.getMaterialById(id)
+    );
+  }
+
+  async getMaterialsByType(type: 'bag' | 'box'): Promise<MaterialInventory[]> {
+    return this.delegate(
+      () => this.databaseStorage.getMaterialsByType(type),
+      () => this.memStorage.getMaterialsByType(type)
+    );
+  }
+
+  async getLowStockMaterials(): Promise<MaterialInventory[]> {
+    return this.delegate(
+      () => this.databaseStorage.getLowStockMaterials(),
+      () => this.memStorage.getLowStockMaterials()
+    );
+  }
+
+  async createMaterial(material: InsertMaterialInventory): Promise<MaterialInventory> {
+    return this.delegate(
+      () => this.databaseStorage.createMaterial(material),
+      () => this.memStorage.createMaterial(material)
+    );
+  }
+
+  async updateMaterial(id: number, material: Partial<MaterialInventory>): Promise<MaterialInventory | undefined> {
+    return this.delegate(
+      () => this.databaseStorage.updateMaterial(id, material),
+      () => this.memStorage.updateMaterial(id, material)
+    );
+  }
+
+  async deleteMaterial(id: number): Promise<boolean> {
+    return this.delegate(
+      () => this.databaseStorage.deleteMaterial(id),
+      () => this.memStorage.deleteMaterial(id)
+    );
+  }
+
+  // Material Mapping Rules
+  async getAllMaterialRules(): Promise<MaterialMappingRule[]> {
+    return this.delegate(
+      () => this.databaseStorage.getAllMaterialRules(),
+      () => this.memStorage.getAllMaterialRules()
+    );
+  }
+
+  async getMaterialRuleById(id: number): Promise<MaterialMappingRule | undefined> {
+    return this.delegate(
+      () => this.databaseStorage.getMaterialRuleById(id),
+      () => this.memStorage.getMaterialRuleById(id)
+    );
+  }
+
+  async getMaterialRulesByInstrumentType(type: string): Promise<MaterialMappingRule[]> {
+    return this.delegate(
+      () => this.databaseStorage.getMaterialRulesByInstrumentType(type),
+      () => this.memStorage.getMaterialRulesByInstrumentType(type)
+    );
+  }
+
+  async createMaterialRule(rule: InsertMaterialMappingRule): Promise<MaterialMappingRule> {
+    return this.delegate(
+      () => this.databaseStorage.createMaterialRule(rule),
+      () => this.memStorage.createMaterialRule(rule)
+    );
+  }
+
+  async updateMaterialRule(id: number, rule: Partial<MaterialMappingRule>): Promise<MaterialMappingRule | undefined> {
+    return this.delegate(
+      () => this.databaseStorage.updateMaterialRule(id, rule),
+      () => this.memStorage.updateMaterialRule(id, rule)
+    );
+  }
+
+  async deleteMaterialRule(id: number): Promise<boolean> {
+    return this.delegate(
+      () => this.databaseStorage.deleteMaterialRule(id),
+      () => this.memStorage.deleteMaterialRule(id)
+    );
+  }
+
+  // Instrument Inventory
+  async getAllInstruments(): Promise<InstrumentInventory[]> {
+    return this.delegate(
+      () => this.databaseStorage.getAllInstruments(),
+      () => this.memStorage.getAllInstruments()
+    );
+  }
+
+  async getInstrumentById(id: number): Promise<InstrumentInventory | undefined> {
+    return this.delegate(
+      () => this.databaseStorage.getInstrumentById(id),
+      () => this.memStorage.getInstrumentById(id)
+    );
+  }
+
+  async getInstrumentBySerialNumber(serialNumber: string): Promise<InstrumentInventory | undefined> {
+    return this.delegate(
+      () => this.databaseStorage.getInstrumentBySerialNumber(serialNumber),
+      () => this.memStorage.getInstrumentBySerialNumber(serialNumber)
+    );
+  }
+
+  async getInstrumentsByType(type: string): Promise<InstrumentInventory[]> {
+    return this.delegate(
+      () => this.databaseStorage.getInstrumentsByType(type),
+      () => this.memStorage.getInstrumentsByType(type)
+    );
+  }
+
+  async getInstrumentsByStatus(status: string): Promise<InstrumentInventory[]> {
+    return this.delegate(
+      () => this.databaseStorage.getInstrumentsByStatus(status),
+      () => this.memStorage.getInstrumentsByStatus(status)
+    );
+  }
+
+  async createInstrument(instrument: InsertInstrumentInventory): Promise<InstrumentInventory> {
+    return this.delegate(
+      () => this.databaseStorage.createInstrument(instrument),
+      () => this.memStorage.createInstrument(instrument)
+    );
+  }
+
+  async updateInstrument(id: number, instrument: Partial<InstrumentInventory>): Promise<InstrumentInventory | undefined> {
+    return this.delegate(
+      () => this.databaseStorage.updateInstrument(id, instrument),
+      () => this.memStorage.updateInstrument(id, instrument)
+    );
+  }
+
+  async deleteInstrument(id: number): Promise<boolean> {
+    return this.delegate(
+      () => this.databaseStorage.deleteInstrument(id),
+      () => this.memStorage.deleteInstrument(id)
+    );
+  }
+
+  // Mold Inventory
+  async getAllMolds(): Promise<MoldInventory[]> {
+    return this.delegate(
+      () => this.databaseStorage.getAllMolds(),
+      () => this.memStorage.getAllMolds()
+    );
+  }
+
+  async getMoldById(id: number): Promise<MoldInventory | undefined> {
+    return this.delegate(
+      () => this.databaseStorage.getMoldById(id),
+      () => this.memStorage.getMoldById(id)
+    );
+  }
+
+  async getMoldsByInstrumentType(type: string): Promise<MoldInventory[]> {
+    return this.delegate(
+      () => this.databaseStorage.getMoldsByInstrumentType(type),
+      () => this.memStorage.getMoldsByInstrumentType(type)
+    );
+  }
+
+  async createMold(mold: InsertMoldInventory): Promise<MoldInventory> {
+    return this.delegate(
+      () => this.databaseStorage.createMold(mold),
+      () => this.memStorage.createMold(mold)
+    );
+  }
+
+  async updateMold(id: number, mold: Partial<MoldInventory>): Promise<MoldInventory | undefined> {
+    return this.delegate(
+      () => this.databaseStorage.updateMold(id, mold),
+      () => this.memStorage.updateMold(id, mold)
+    );
+  }
+
+  async deleteMold(id: number): Promise<boolean> {
+    return this.delegate(
+      () => this.databaseStorage.deleteMold(id),
+      () => this.memStorage.deleteMold(id)
+    );
+  }
+
+  // Mold Mappings
+  async getAllMoldMappings(): Promise<MoldMapping[]> {
+    return this.delegate(
+      () => this.databaseStorage.getAllMoldMappings(),
+      () => this.memStorage.getAllMoldMappings()
+    );
+  }
+
+  async getMoldMappingById(id: number): Promise<MoldMapping | undefined> {
+    return this.delegate(
+      () => this.databaseStorage.getMoldMappingById(id),
+      () => this.memStorage.getMoldMappingById(id)
+    );
+  }
+
+  async getMoldMappingsByInstrumentType(type: string): Promise<MoldMapping[]> {
+    return this.delegate(
+      () => this.databaseStorage.getMoldMappingsByInstrumentType(type),
+      () => this.memStorage.getMoldMappingsByInstrumentType(type)
+    );
+  }
+
+  async getMoldMappingByTuning(instrumentType: string, tuningNote: string): Promise<MoldMapping | undefined> {
+    return this.delegate(
+      () => this.databaseStorage.getMoldMappingByTuning(instrumentType, tuningNote),
+      () => this.memStorage.getMoldMappingByTuning(instrumentType, tuningNote)
+    );
+  }
+
+  async createMoldMapping(mapping: InsertMoldMapping): Promise<MoldMapping> {
+    return this.delegate(
+      () => this.databaseStorage.createMoldMapping(mapping),
+      () => this.memStorage.createMoldMapping(mapping)
+    );
+  }
+
+  async updateMoldMapping(id: number, mapping: Partial<MoldMapping>): Promise<MoldMapping | undefined> {
+    return this.delegate(
+      () => this.databaseStorage.updateMoldMapping(id, mapping),
+      () => this.memStorage.updateMoldMapping(id, mapping)
+    );
+  }
+
+  async deleteMoldMapping(id: number): Promise<boolean> {
+    return this.delegate(
+      () => this.databaseStorage.deleteMoldMapping(id),
+      () => this.memStorage.deleteMoldMapping(id)
+    );
+  }
+
+  // Mold Mapping Items
+  async getMappingMolds(mappingId: number): Promise<(MoldMappingItem & MoldInventory)[]> {
+    return this.delegate(
+      () => this.databaseStorage.getMappingMolds(mappingId),
+      () => this.memStorage.getMappingMolds(mappingId)
+    );
+  }
+
+  async addMoldToMapping(mappingId: number, moldId: number, orderIndex?: number): Promise<MoldMappingItem> {
+    return this.delegate(
+      () => this.databaseStorage.addMoldToMapping(mappingId, moldId, orderIndex),
+      () => this.memStorage.addMoldToMapping(mappingId, moldId, orderIndex)
+    );
+  }
+
+  async removeMoldFromMapping(mappingItemId: number): Promise<boolean> {
+    return this.delegate(
+      () => this.databaseStorage.removeMoldFromMapping(mappingItemId),
+      () => this.memStorage.removeMoldFromMapping(mappingItemId)
+    );
+  }
+
+  async updateMoldMappingOrder(mappingItemId: number, newOrderIndex: number): Promise<MoldMappingItem | undefined> {
+    return this.delegate(
+      () => this.databaseStorage.updateMoldMappingOrder(mappingItemId, newOrderIndex),
+      () => this.memStorage.updateMoldMappingOrder(mappingItemId, newOrderIndex)
+    );
+  }
+
+  // Resellers
+  async getAllResellers(): Promise<Reseller[]> {
+    return this.delegate(
+      () => this.databaseStorage.getAllResellers(),
+      () => this.memStorage.getAllResellers()
+    );
+  }
+
+  async getResellerById(id: number): Promise<Reseller | undefined> {
+    return this.delegate(
+      () => this.databaseStorage.getResellerById(id),
+      () => this.memStorage.getResellerById(id)
+    );
+  }
+
+  async getResellerByNickname(nickname: string): Promise<Reseller | undefined> {
+    return this.delegate(
+      () => this.databaseStorage.getResellerByNickname(nickname),
+      () => this.memStorage.getResellerByNickname(nickname)
+    );
+  }
+
+  async getActiveResellers(): Promise<Reseller[]> {
+    return this.delegate(
+      () => this.databaseStorage.getActiveResellers(),
+      () => this.memStorage.getActiveResellers()
+    );
+  }
+
+  async createReseller(reseller: InsertReseller): Promise<Reseller> {
+    return this.delegate(
+      () => this.databaseStorage.createReseller(reseller),
+      () => this.memStorage.createReseller(reseller)
+    );
+  }
+
+  async updateReseller(id: number, reseller: Partial<Reseller>): Promise<Reseller | undefined> {
+    return this.delegate(
+      () => this.databaseStorage.updateReseller(id, reseller),
+      () => this.memStorage.updateReseller(id, reseller)
+    );
+  }
+
+  async deleteReseller(id: number): Promise<boolean> {
+    return this.delegate(
+      () => this.databaseStorage.deleteReseller(id),
+      () => this.memStorage.deleteReseller(id)
+    );
+  }
+
+  // Helper method for getting molds for instrument
+  async getMoldsForInstrument(instrumentType: string, tuningNote: string): Promise<MoldInventory[]> {
+    return this.delegate(
+      () => this.databaseStorage.getMoldsForInstrument(instrumentType, tuningNote),
+      () => this.memStorage.getMoldsForInstrument(instrumentType, tuningNote)
+    );
+  }
 }
 
 export const storage = new HybridStorage();
