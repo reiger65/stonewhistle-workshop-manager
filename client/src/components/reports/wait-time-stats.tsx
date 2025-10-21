@@ -365,7 +365,7 @@ function calculateWaitTime(allOrders: Order[], nonWorkingPeriods: NonWorkingPeri
       
       // Instrument mix gegevens
       pendingItemCount: totalPendingItems,
-      wachtrijFactor: totalPendingItems > 0 ? Math.ceil(totalPendingItems / 20) : 0, // Queue factor based on batch size - FIXED
+      wachtrijFactor: wachtrijFactor,
       
       // Batch process wachttijden
       ovenWachttijd: ovenWachttijd,

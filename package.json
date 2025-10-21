@@ -10,7 +10,7 @@
     "build": "npm run build:client",
     "build:client": "vite build",
     "build:server": "tsc --project tsconfig.server.json",
-    "start": "node server/simple-server.js",
+    "start": "tsx server/index.ts",
     "deploy": "npm run build && npm start"
   },
   "dependencies": {

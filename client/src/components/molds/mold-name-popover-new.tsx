@@ -44,19 +44,19 @@ export function MoldNamePopover({ children, instrumentType, tuningNote, frequenc
     
     console.log(`Getting safe API tuning note for: ${type} ${note}`);
     
-    // Database stores tuning notes WITH 'm' (e.g., G#m3, Am3)
-    // If the note doesn't have 'm', we need to add it for database lookup
-    if (!note.includes('m')) {
-      const match = note.match(/([A-G])(#|b)?([1-6])/i);
+    // ALL flute types need to have the 'm' removed for database lookup
+    // The key difference is in the DISPLAY - NATEY shows with 'm', but database stores without it
+    if (note.includes('m')) {
+      const match = note.match(/([A-G])(#|b)?m([1-6])/i);
       if (match) {
         const [_, noteLetter, accidental, octave] = match;
-        const correctedNote = `${noteLetter}${accidental || ''}m${octave}`;
-        console.log(`DB LOOKUP: Adding 'm' suffix for lookup: ${note} -> ${correctedNote}`);
+        const correctedNote = `${noteLetter}${accidental || ''}${octave}`;
+        console.log(`DB LOOKUP: Removing 'm' suffix for lookup: ${note} -> ${correctedNote}`);
         return correctedNote;
       }
     }
     
-    // If 'm' was already found, return as is
+    // If no 'm' was found or pattern didn't match, return as is
     console.log(`DB LOOKUP: Using note as is for lookup: ${note}`);
     return note;
   };
@@ -560,7 +560,7 @@ export function MoldNamePopover({ children, instrumentType, tuningNote, frequenc
                                 
                                 <div className="text-center mb-5 mt-2">
                                   <span className="mold-number text-[70pt] font-bold text-gray-800 px-5 py-2 inline-block tracking-tight leading-none">
-                                    {mold.name}
+                                    {mold.displayName || mold.name}
                                   </span>
                                 </div>
                                 

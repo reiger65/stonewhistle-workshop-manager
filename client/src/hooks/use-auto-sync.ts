@@ -27,10 +27,6 @@ export function useAutoSync() {
         
         console.log(`Initiële synchronisatie met Shopify gestart bij het opstarten van de app (periode: ${syncPeriod})`);
         
-        // TEMPORARILY DISABLED - Auto-sync causing 500 errors and blocking orders loading
-        console.log('Auto-sync temporarily disabled to prevent blocking orders loading');
-        return;
-        
         const response = await fetch('/api/import-shopify', { 
           method: 'POST',
           headers: {

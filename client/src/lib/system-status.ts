@@ -52,10 +52,6 @@ export const useSystemStatus = create<{
 let socket: WebSocket | null = null;
 
 export function initSystemStatusWebSocket() {
-  // TEMPORARILY DISABLED - WebSocket causing connection errors
-  console.log('WebSocket connection disabled to prevent connection errors');
-  return;
-  
   if (socket) {
     // Als er al een socket is, deze sluiten
     socket.close();

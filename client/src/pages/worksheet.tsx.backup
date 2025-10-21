@@ -7,160 +7,6 @@ import { useSearch } from '@/hooks/use-search';
 import { enrichOrderItemsWithDatabaseSpecs } from '@/lib/serial-number-utils';
 import { SERIAL_NUMBER_DATABASE } from '@shared/serial-number-database';
 import { detectInstrumentType, getInstrumentTuning, isTuningSimilar } from '@/lib/tuning-filter-utils';
-import { calculateWaitTime, type NonWorkingPeriod } from '@/components/reports/wait-time-stats';
-import { useNotStartedItems, useClientNotStartedItems } from '@/hooks/use-not-started-items';
-import { NextInstrumentBanner } from '@/components/ui/next-instrument-banner-new';
-import { NotStartedItemsCount } from '@/components/ui/not-started-items-count';
-import { getColorCodeFromSpecifications, detectColorCodeFromString } from '@/lib/color-utils';
-
-
-// Global store for notes to prevent auto-refresh interference
-const notesStore = new Map<number, string>();
-
-// Notes input component with completely isolated state
-const NotesInput = ({ itemId, initialValue, onSave }: { 
-  itemId: number; 
-  initialValue: string; 
-  onSave: (notes: string) => void; 
-}) => {
-  // Use stored value if available, otherwise use initial value
-  const getStoredValue = () => {
-    return notesStore.has(itemId) ? notesStore.get(itemId)! : (initialValue || '');
-  };
-
-  const [value, setValue] = useState(getStoredValue);
-  const [isSaving, setIsSaving] = useState(false);
-
-  // Only update if there's no stored value and initial value changes
-  useEffect(() => {
-    if (!notesStore.has(itemId) && !isSaving) {
-      setValue(initialValue || '');
-    }
-  }, [itemId, initialValue, isSaving]);
-
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const newValue = e.target.value;
-    setValue(newValue);
-    // Store the value immediately to prevent loss
-    notesStore.set(itemId, newValue);
-  };
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !isSaving) {
-      e.preventDefault();
-      setIsSaving(true);
-      
-      onSave(value);
-      
-      // Keep the value in store longer to prevent auto-refresh override
-      setTimeout(() => {
-        setIsSaving(false);
-        // Don't clear from store immediately - let it persist
-        // The store will be the source of truth until next manual edit
-      }, 3000);
-    }
-  };
-
-  const hasChanges = value !== (initialValue || '');
-
-  return (
-    <input
-      type="text"
-      className={`w-28 text-center bg-transparent border rounded p-1 text-sm focus:outline-none focus:ring-1 focus:ring-primary ${
-        isSaving ? 'border-green-500' : hasChanges ? 'border-yellow-400' : 'border-gray-300'
-      }`}
-      value={value}
-      onChange={handleChange}
-      onKeyDown={handleKeyDown}
-      placeholder="Notes..."
-      aria-label="Workshop Notes"
-      title={hasChanges ? "Press Enter to save changes" : "Type notes and press Enter to save"}
-    />
-  );
-};
-
-// Define interface for OrderItem
-interface OrderItem {
-  id: number;
-  orderId: number;
-  serialNumber?: string;
-  status?: string;
-  itemName?: string;
-  orderNumber?: string;
-  archived?: boolean;
-  isArchived?: boolean;
-  checkboxes?: Record<string, boolean>;
-  statusChangeDates?: Record<string, string>;
-  itemType?: string;
-  tuning?: string;
-  specifications?: Record<string, any>;
-  shopifyLineItemId?: string;
-  isDeleted?: boolean;
-}
-
-
-// Centrale mapping van UI statusnamen naar database veldnamen
-// Geplaatst bovenaan het bestand om 'Cannot access uninitialized variable' te voorkomen
-/**
- * Deze mapping vertaalt de statusnamen uit de UI naar de daadwerkelijke veldnamen in de database
- * Belangrijk: de mapping staat los van de checkbox labels die de gebruiker ziet
- * 
- * Op UI klikken gebruikers op:
- * - Build of building (database veld 'building')
- * - Dry (database veld 'dry')
- * - TS (database veld 'terrasigillata')
- * - SM (database veld 'smokefiring')
- */
-const STATUS_MAPPING: Record<string, string> = {
-  'not_started': 'not_started', // Special value for items with no checkboxes
-  'ordered': 'ordered',
-  'parts': 'parts', 
-  'prepared': 'prepared',
-  'build': 'building',      // UI toont 'Build' maar database veld is 'building'
-  'building': 'building',
-  'dry': 'dry',
-  'TS': 'terrasigillata',   // UI toont 'TS' maar database veld is 'terrasigillata'
-  'ts': 'terrasigillata',   // Ook kleine letters accepteren
-  'terrasigillata': 'terrasigillata', 
-  'firing': 'firing', 
-  'SM': 'smokefiring',      // UI toont 'SM' maar database veld is 'smokefiring'
-  'sm': 'smokefiring',      // Ook kleine letters accepteren
-  'smokefiring': 'smokefiring',  
-  'smoothing': 'smoothing', // Oude naam behouden voor compatibiliteit
-  'tuning1': 'tuning1',
-  'waxing': 'waxing',
-  'tuning2': 'tuning2',
-  'bagging': 'bagging',
-  'boxing': 'boxing',
-  'labeling': 'labeling',
-  'testing': 'testing',
-  'validated': 'validated'
-};
-
-// Helper functie om status UI naam naar database veld te vertalen
-const getDbFieldForStatus = (statusName: string): string => {
-  if (!statusName) return "";
-  
-  // Normaliseer statusfilter (lowercase) voor consistente matching
-  const normalizedStatus = statusName.toLowerCase();
-  
-  // Standaard waarde (als mapping niet gevonden wordt)
-  let dbField = normalizedStatus;
-  
-  // Eerst exacte match proberen (case-insensitive)
-  if (STATUS_MAPPING[normalizedStatus]) {
-    return STATUS_MAPPING[normalizedStatus];
-  }
-  
-  // Als geen exacte match, zoek case-insensitive in de keys
-  Object.entries(STATUS_MAPPING).forEach(([uiName, dbName]) => {
-    if (uiName.toLowerCase() === normalizedStatus) {
-      dbField = dbName;
-    }
-  });
-  
-  return dbField;
-};
 
 // Veilige hulpfunctie om de serienummer database te raadplegen
 // Volledig opnieuw geïmplementeerd om 'Cannot access uninitialized variable' fout te voorkomen
@@ -172,11 +18,6 @@ const safeGetFromSerialNumberDatabase = (serialNumber: string | null | undefined
       console.log('SERIAL_NUMBER_DB: Geen serienummer opgegeven');
       return null;
     }
-    
-    // BELANGRIJKE VERBETERING: Normaliseer het serienummer door "SW-" prefix te verwijderen
-    // Dit zorgt ervoor dat we consistent kunnen zoeken in de database
-    const normalizedSerialNumber = serialNumber.replace(/^SW-/, '');
-    console.log(`SERIAL_NUMBER_DB: Zoeken naar genormaliseerd serienummer: ${normalizedSerialNumber} (origineel: ${serialNumber})`);
     
     // Expliciete controle of SERIAL_NUMBER_DATABASE correct gedefinieerd is
     // We gebruiken geen window object meer, want dat veroorzaakt TypeScript fouten
@@ -205,21 +46,17 @@ const safeGetFromSerialNumberDatabase = (serialNumber: string | null | undefined
     }
     
     // Defensieve check: controleer of de property bestaat, zonder via [] acces te gebruiken
-    // BELANGRIJK: Gebruik de genormaliseerde versie van het serienummer
-    if (!Object.prototype.hasOwnProperty.call(SERIAL_NUMBER_DATABASE, normalizedSerialNumber)) {
+    if (!Object.prototype.hasOwnProperty.call(SERIAL_NUMBER_DATABASE, serialNumber)) {
       // Serienummer niet gevonden - geen error, dit is normaal gedrag
-      console.log(`SERIAL_NUMBER_DB: Serienummer ${normalizedSerialNumber} niet gevonden in database`);
       return null;
     }
     
     // Veilige retrieval met extra validatie
-    // BELANGRIJK: Gebruik de genormaliseerde versie van het serienummer
-    const spec = SERIAL_NUMBER_DATABASE[normalizedSerialNumber];
-    console.log(`SERIAL_NUMBER_DB: Serienummer ${normalizedSerialNumber} gevonden in database:`, spec);
+    const spec = SERIAL_NUMBER_DATABASE[serialNumber];
     
     // Extra controle dat spec geldig is
     if (spec === null || typeof spec !== 'object') {
-      console.warn(`Ongeldige spec voor serienummer ${normalizedSerialNumber}:`, spec);
+      console.warn(`Ongeldige spec voor serienummer ${serialNumber}:`, spec);
       return null;
     }
     
@@ -277,7 +114,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Label } from '@/components/ui/label';
 import { Badge } from "@/components/ui/badge";
-import { Search, RefreshCw, Phone, Mail, User, Package, PackageOpen, ExternalLink, ArchiveX, RotateCcw, Copy, ChevronDown, ChevronUp, ChevronsUpDown, Check, Calendar, Trash, Plus, Pin, Focus, Filter, X as XIcon, FileText, Clock, MapPin, MessageSquare, ClipboardEdit, Printer, CheckSquare, BarChart, ClipboardList, TimerIcon, Music, ListTodo, Palette, Wind, ArrowUpDown, SquarePen, PenTool, Construction } from 'lucide-react';
+import { Search, RefreshCw, Phone, Mail, User, Package, PackageOpen, ExternalLink, ArchiveX, RotateCcw, Copy, ChevronDown, ChevronUp, ChevronsUpDown, Check, Calendar, Trash, Plus, Pin, Focus, Filter, X as XIcon, FileText, Clock, MapPin, MessageSquare, ClipboardEdit, Printer, CheckSquare, BarChart, ClipboardList, TimerIcon, Music, ListTodo, Palette, Wind, ArrowUpDown } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { syncShopifyOrders } from '@/lib/shopify';
 import { useOfflineMode } from '@/hooks/use-offline-mode';
@@ -300,81 +137,77 @@ import {
   getTuningFromOrder,
   cleanTuningNote
 } from '@/lib/material-utils';
-import { MoldNamePopover } from '@/components/molds/mold-name-popover';
+import { MoldNamePopover } from '@/components/molds/mold-name-popover-new';
 import { MoldInfoDialog } from '@/components/molds/mold-info-dialog';
 
 // Component to calculate and display the average wait time
-import { calculateAverageWaitTime } from '@/lib/utils';
-
 interface WaitTimeDisplayProps {
   allOrders: Order[];
 }
 
 const WaitTimeDisplay: FC<WaitTimeDisplayProps> = ({ allOrders }) => {
+  // Gebruik een vaste waarde van 81 dagen voor de gemiddelde wachttijd
+  // plus de niet-werkdagen uit de kalender
+  
   // Haal de opgeslagen niet-werkperiodes op uit localStorage
-  const [nonWorkingPeriods, setNonWorkingPeriods] = useState<NonWorkingPeriod[]>(() => {
+  const [nonWorkingPeriods, setNonWorkingPeriods] = useState<{start: string, end: string, reason: string}[]>(() => {
     const savedPeriods = localStorage.getItem('nonWorkingPeriods');
     return savedPeriods ? JSON.parse(savedPeriods) : [];
   });
   
-  // Only calculate wait time if we have valid orders data
-  const waitTimeResult = useMemo(() => {
-    // Check if orders are loaded and it's a valid array
-    if (!allOrders || !Array.isArray(allOrders) || allOrders.length === 0) {
-      console.log('Wait time calculation: No valid orders data available yet');
-      return { finalWaitDays: '...' }; // Return placeholder when data is not ready
-    }
+  // We willen logs weergeven voor debugging en de niet-werkdagen berekenen
+  const waitDays = useMemo(() => {
+    console.log("Berekenen wachttijd inclusief niet-werkdagen");
     
-    console.log(`Wait time calculation: Processing ${allOrders.length} orders`);
-    return calculateWaitTime(allOrders, nonWorkingPeriods);
+    try {
+      // Basis wachttijd is 81 dagen (helft van 162)
+      const baseWaitDays = 81;
+      console.log(`Basis wachttijd: ${baseWaitDays} dagen`);
+      
+      // Filter actieve orders die nog in behandeling zijn (voor loggen)
+      const pendingOrders = allOrders.filter(order => 
+        order.status !== "cancelled" && 
+        order.status !== "delivered" && 
+        order.status !== "shipping"
+      );
+      
+      console.log(`Aantal actieve orders gevonden: ${pendingOrders.length}`);
+      
+      // Bereken het totaal aantal niet-werkdagen
+      let totalNonWorkingDays = 0;
+      
+      // Bereken voor elke niet-werkperiode het aantal dagen
+      nonWorkingPeriods.forEach(period => {
+        const startDate = new Date(period.start);
+        const endDate = new Date(period.end);
+        
+        // Controleer of de datums geldig zijn
+        if (!isNaN(startDate.getTime()) && !isNaN(endDate.getTime())) {
+          // Bereken het aantal dagen tussen start en eind (inclusief)
+          const daysDiff = Math.round((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+          if (daysDiff > 0) {
+            totalNonWorkingDays += daysDiff;
+            console.log(`Niet-werkperiode van ${period.start} tot ${period.end} (${daysDiff} dagen): ${period.reason}`);
+          }
+        }
+      });
+      
+      console.log(`Totaal aantal niet-werkdagen: ${totalNonWorkingDays}`);
+      
+      // Tel de niet-werkdagen op bij de basis wachttijd
+      const totalWaitDays = baseWaitDays + totalNonWorkingDays;
+      console.log(`Totale wachttijd inclusief niet-werkdagen: ${totalWaitDays} dagen`);
+      
+      return totalWaitDays;
+    } catch (error) {
+      console.error("Fout bij wachttijd berekening:", error);
+      // Bij fouten gebruiken we de standaard waarde
+      return 81;
+    }
   }, [allOrders, nonWorkingPeriods]);
   
   return (
-    <span style={{ whiteSpace: 'nowrap' }}>
-      {typeof waitTimeResult.finalWaitDays === 'number' 
-        ? `${waitTimeResult.finalWaitDays}d` 
-        : waitTimeResult.finalWaitDays}
-    </span>
-  );
-};
-
-// Customer Notes Input Component
-interface CustomerNotesInputProps {
-  orderId: number;
-  initialNotes: string;
-  onSave: (notes: string) => void;
-}
-
-const CustomerNotesInput = ({ orderId, initialNotes, onSave }: CustomerNotesInputProps) => {
-  const [notes, setNotes] = React.useState(initialNotes);
-
-  React.useEffect(() => {
-    setNotes(initialNotes);
-  }, [initialNotes]);
-
-  const handleBlur = () => {
-    if (notes !== initialNotes) {
-      onSave(notes);
-    }
-  };
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') {
-      e.currentTarget.blur();
-    }
-  };
-
-  return (
-    <input
-      type="text"
-      className="w-full text-left bg-transparent border border-gray-300 rounded p-1 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
-      value={notes}
-      onChange={(e) => setNotes(e.target.value)}
-      onBlur={handleBlur}
-      onKeyDown={handleKeyDown}
-      placeholder="Notes..."
-      aria-label="Customer Notes"
-    />
+    <span style={{ whiteSpace: 'nowrap' }}>{waitDays}d</span>
   );
 };
 
@@ -468,34 +301,9 @@ const InstrumentTypeBadge: React.FC<InstrumentTypeBadgeProps> = ({ type, isInHea
 };
 
 export default function Worksheet() {
-  // Force update mechanism for material updates
-  const [materialUpdateCount, setMaterialUpdateCount] = useState<number>(0);
-  const forceRefreshMaterials = () => {
-    console.log("Force refreshing materials UI");
-    
-    // First, update our counter to trigger React re-renders
-    setMaterialUpdateCount(prev => prev + 1);
-    
-    // Force refresh all queries to ensure everything is up-to-date
-    setTimeout(() => {
-      // Invalidate and refetch queries to get fresh data
-      queryClient.invalidateQueries({ queryKey: ['/api/orders'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/order-items'] });
-      
-      // After a small delay, also refetch the queries (double-safety)
-      setTimeout(() => {
-        queryClient.refetchQueries({ queryKey: ['/api/orders'] });
-        queryClient.refetchQueries({ queryKey: ['/api/order-items'] });
-        
-        // Increment counter again to ensure components re-render with new data
-        setMaterialUpdateCount(prev => prev + 2);
-        console.log("🔄 Material data refreshed completely");
-      }, 100);
-    }, 50);
-  };
   // We gebruiken nu useSearch hook in plaats van lokale state voor zoeken
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
-  const [showAllOrders, setShowAllOrders] = useState(true); // Changed to true to show all orders including archived ones
+  const [showAllOrders, setShowAllOrders] = useState(false); // Toggle to show all orders including shipped/cancelled
   const [orderDetailsOpen, setOrderDetailsOpen] = useState(false);
   const [workshopNotes, setWorkshopNotes] = useState('');
   const [archiveOrder, setArchiveOrder] = useState(false);
@@ -554,9 +362,6 @@ export default function Worksheet() {
   
   // Show only selected orders filter
   const [showOnlySelected, setShowOnlySelected] = useState(false);
-  
-  // New filter to show only items without any checked boxes (not started items)
-  const [showOnlyNotStarted, setShowOnlyNotStarted] = useState(false);
   
   // Create a safer setter for typeFilter that always ensures proper casing
   const setTypeFilterSafe = (newType: string | null) => {
@@ -633,14 +438,14 @@ export default function Worksheet() {
   }, [selectedTimeWindow]);
   
   // Non-working periods tracking
-  const [nonWorkingPeriods, setNonWorkingPeriods] = useState<NonWorkingPeriod[]>(() => {
+  const [nonWorkingPeriods, setNonWorkingPeriods] = useState<{start: string, end: string, reason: string}[]>(() => {
     const savedPeriods = localStorage.getItem('nonWorkingPeriods');
     return savedPeriods ? JSON.parse(savedPeriods) : [];
   });
   
   // State for adding new non-working periods
   const [showNonWorkingForm, setShowNonWorkingForm] = useState(false);
-  const [newNonWorkingPeriod, setNewNonWorkingPeriod] = useState<NonWorkingPeriod>({
+  const [newNonWorkingPeriod, setNewNonWorkingPeriod] = useState({
     start: format(new Date(), 'yyyy-MM-dd'),
     end: format(addDays(new Date(), 7), 'yyyy-MM-dd'),
     reason: ''
@@ -665,17 +470,10 @@ export default function Worksheet() {
     queryKey: ['/api/orders'],
   });
   
-  // Sort orders using the global sort settings with urgent orders first
+  // Sort orders using the global sort settings
   const allOrders = useMemo(() => {
     return [...fetchedOrders].sort((a, b) => {
-      // First sort by urgent status - urgent orders always come first
-      const aUrgent = a.isUrgent || false;
-      const bUrgent = b.isUrgent || false;
-      
-      if (aUrgent && !bUrgent) return -1;
-      if (!aUrgent && bUrgent) return 1;
-      
-      // If both are urgent or both are normal, use the existing sort logic
+      // Use the Switch component's value to allow toggle between old->new and new->old
       if (newestFirst) {
         // If Switch is ON, show newest first (reverse the sort)
         if (sortField === 'orderNumber') {
@@ -699,130 +497,66 @@ export default function Worksheet() {
   }, [fetchedOrders, newestFirst, sortField]);
   
   // Fetch all order items for each order
-  const { data: allOrderItems = [], isLoading: isLoadingOrderItems } = useQuery<OrderItem[]>({
+  const { data: allOrderItems = [], isLoading: isLoadingItems } = useQuery<OrderItem[]>({
     queryKey: ['/api/order-items'], // Verwijderd timestamp om oneindige lus te voorkomen
     refetchOnWindowFocus: true, // Refetch bij window focus
     refetchOnMount: true, // Refetchen bij mounting
-    refetchInterval: 60000, // 60 seconds
+    refetchInterval: 60000, // Refetch elke minuut (60000 ms)
     retry: 3, // Retry failed requests up to 3 times
     select: (data) => {
       // Verrijk elk order item met de correcte specificaties uit SERIAL_NUMBER_DATABASE
       console.log(`Verrijken van ${data.length} items met serienummer database specificaties`);
       return enrichOrderItemsWithDatabaseSpecs(data);
-    }
-  });
-  
-  // Log additional debug information when items are loaded
-  useEffect(() => {
-    if (allOrderItems && allOrderItems.length > 0) {
-      console.log(`Succesvol ${allOrderItems.length} order items geladen!`);
+    },
+    onError: (error: Error) => {
+      console.error('Error fetching order items:', error);
+      toast({
+        title: 'Fout bij het laden van bestelde items',
+        description: 'Probeer de pagina te verversen.',
+        variant: 'destructive'
+      });
+    },
+    onSuccess: (data) => {
+      console.log(`Succesvol ${data.length} order items geladen!`);
       
       // Debug log voor de problematische Billy-orders (ID 32 en 33)
       // KRITISCHE FIX: De filter functie vergelijkt mogelijk object referenties in plaats van waarden
       // We zorgen voor expliciete numerieke vergelijking om te voorkomen dat string/number vergelijkingen falen
-      const orderItems32 = allOrderItems.filter(item => Number(item.orderId) === 32);
-      const orderItems33 = allOrderItems.filter(item => Number(item.orderId) === 33);
+      const orderItems32 = data.filter(item => Number(item.orderId) === 32);
+      const orderItems33 = data.filter(item => Number(item.orderId) === 33);
       console.log('DEBUG - Order 1560 (ID:32) items:', orderItems32.map(i => i.serialNumber));
       console.log('DEBUG - Order 1559 (ID:33) items:', orderItems33.map(i => i.serialNumber));
       
       // EXTRA DEBUGGING: Inspecteer alle orderId typen voor Billy orders
       console.log('BILLY ORDER TYPES CHECK:');
-      allOrderItems.filter(item => {
+      data.filter(item => {
         const id = Number(item.orderId);
         return id === 32 || id === 33;
       }).forEach(item => {
         console.log(`Item ${item.serialNumber} heeft orderId: ${item.orderId} (type: ${typeof item.orderId})`);
       });
     }
-  }, [allOrderItems]);
+  });
   
-  // Nieuwe definitie van unfulfilled orders voor de badge, gebaseerd op Shopify's definitie:
-  // Alle orders die niet 'shipping', 'delivered' of 'cancelled' zijn
-  // WIJZIGING: We filteren orders op basis van Shopify fulfilled status
-  // Deze filter moet ook orders met archived status behouden als ze nog steeds unfulfilled zijn in Shopify
-  const shopifyUnfulfilledOrders = (allOrders || []).filter(order => 
+  // Calculate unfulfilled orders count (all orders that are not shipping, delivered, or cancelled)
+  // We'll consider an order unfulfilled if it's currently in progress in our workshop
+  const unfulfilledOrders = (allOrders as Order[]).filter(order => 
     order.status !== 'shipping' && 
     order.status !== 'delivered' && 
     order.status !== 'cancelled' &&
-    order.status !== 'archived' &&
-    !order.archived  // We voegen dit alsnog toe om problemen te voorkomen
-  );
-  
-  // Voor de interne werklijst gebruiken we nog steeds de gefilterde versie op archived
-  // BELANGRIJKE WIJZIGING: We moeten ook op status='archived' filteren
-  // omdat er 292 orders zijn met status='archived' maar archived=false
-  const unfulfilledOrders = (allOrders || []).filter(order => 
-    order.status !== 'shipping' && 
-    order.status !== 'delivered' && 
-    order.status !== 'cancelled' &&
-    order.status !== 'archived' &&
     !order.archived
   );
+  const unfulfilledOrdersCount = unfulfilledOrders.length;
   
-  // Laten we de correcte statistieken berekenen
-  // BELANGRIJKE WIJZIGING: We moeten ook op status='archived' filteren
-  // omdat er 292 orders zijn met status='archived' maar archived=false
-  const activeOrders = (allOrders || []).filter(order => 
-    !order.archived && 
-    order.status !== 'shipping' && 
-    order.status !== 'delivered' && 
-    order.status !== 'cancelled' &&
-    order.status !== 'archived'
-  );
-  
-  // Definitie van completed orders volgt Shopify's definitie:
-  // Een order is completed (fulfilled) als het shipping, delivered, of cancelled is
-  // DIT ZIJN DE ORDERS DIE NIET IN DE SHOPIFY UNFULFILLED LIJST STAAN
-  const completedOrders = (allOrders || []).filter(order => 
-    order.status === 'shipping' || 
-    order.status === 'delivered' || 
-    order.status === 'cancelled'
-  );
-
-  // Debug logs voor archiefstatus
-  console.log(`[ORDER STATS] Totaal aantal orders: ${(allOrders || []).length}`);
-  console.log(`[ORDER STATS] Aantal werkelijk actieve orders: ${activeOrders.length}`);
-  console.log(`[ORDER STATS] Aantal voltooide/gearchiveerde orders: ${completedOrders.length}`);
-  console.log(`[ORDER STATS] Aantal gemarkeerd als archived veld: ${(allOrders || []).filter(order => order.archived).length}`);
-  console.log(`[ORDER STATS] Aantal met status 'archived': ${(allOrders || []).filter(order => order.status === 'archived').length}`);
-  console.log(`[ORDER STATS] Aantal met status archived EN boolean=true: ${(allOrders || []).filter(order => order.status === 'archived' && order.archived).length}`);
-  console.log(`[ORDER STATS] Aantal met status archived MAAR boolean=false: ${(allOrders || []).filter(order => order.status === 'archived' && !order.archived).length}`);
-  console.log(`[ORDER STATS] Aantal met boolean=true MAAR status NIET archived: ${(allOrders || []).filter(order => order.archived && order.status !== 'archived').length}`);
-  
-  // Extra debug informatie om te begrijpen waarom we 14 orders zien terwijl Shopify 55 unfulfilled orders heeft
-  const allOrderNumbers = (allOrders || []).map(o => o.orderNumber);
-  console.log(`[DEBUG SHOPIFY] Totaal aantal orders in allOrders: ${allOrderNumbers.length}`);
-  console.log(`[DEBUG SHOPIFY] Aantal orders met status != 'archived' EN !archived: ${(allOrders || []).filter(order => order.status !== 'archived' && !order.archived).length}`);
-  console.log(`[DEBUG SHOPIFY] Aantal orders die alleen gefilterd worden op shipping/delivered/cancelled: ${(allOrders || []).filter(order => 
-    order.status !== 'shipping' && 
-    order.status !== 'delivered' && 
-    order.status !== 'cancelled').length}`);
-  console.log(`[ORDER STATS] Aantal orders met status 'shipping': ${(allOrders || []).filter(order => order.status === 'shipping').length}`);
-  console.log(`[ORDER STATS] Aantal orders met status 'delivered': ${(allOrders || []).filter(order => order.status === 'delivered').length}`);
-  console.log(`[ORDER STATS] Aantal orders met status 'cancelled': ${(allOrders || []).filter(order => order.status === 'cancelled').length}`);
-  
-  // Debug logs voor item archief status
-  console.log(`[ITEM STATS] Totaal aantal items: ${(allOrderItems as OrderItem[]).length}`);
-  console.log(`[ITEM STATS] Aantal niet-gearchiveerde items: ${(allOrderItems as OrderItem[]).filter((item: OrderItem) => !item.isArchived).length}`);
-  console.log(`[ITEM STATS] Aantal gearchiveerde items: ${(allOrderItems as OrderItem[]).filter((item: OrderItem) => item.isArchived).length}`);
-  
-  // Check of de data volledig geladen is
-  // We gebruiken isLoadingOrders en isLoadingOrderItems om te bepalen of alles is geladen
-  const isBuildlistLoaded = !isLoadingOrders && !isLoadingOrderItems;
-  
-  // Voor debugging en verificatie: bereken ook het werkelijke aantal items volgens algoritme
-  if (isBuildlistLoaded) {
-    const calculateActualItems = (allOrderItems as OrderItem[]).filter((item: OrderItem) => {
-      // Gearchiveerde items overslaan
-      if (item.isArchived) return false;
-      
-      // Controleer of het item hoort bij een order die in de Shopify unfulfilled lijst staat
-      const shopifyOrderIds = shopifyUnfulfilledOrders.map(order => order.id);
-      return shopifyOrderIds.includes(item.orderId);
-    }).length;
-    
-    console.log(`[DEBUG COUNTS] Werkelijk aantal items volgens algoritme: ${calculateActualItems}`);
-  }
+  // Calculate total items to build (items from unfulfilled orders)
+  const itemsCount = (allOrderItems as OrderItem[]).filter(item => {
+    const order = (allOrders as Order[]).find(o => o.id === item.orderId);
+    return order && 
+      order.status !== 'shipping' && 
+      order.status !== 'delivered' && 
+      order.status !== 'cancelled' &&
+      !order.archived;
+  }).length;
   
   // OPMERKING: We gebruiken voorlopig een vaste waarde voor de gemiddelde wachttijd
   // omdat de berekening niet betrouwbaar is. In de toekomst kunnen we dit verbeteren.
@@ -834,17 +568,8 @@ export default function Worksheet() {
   // Log all order numbers of unfulfilled orders
   console.log('Unfulfilled orders:', unfulfilledOrders.map(o => o.orderNumber).join(', '));
   
-  // Log all Shopify unfulfilled orders
-  console.log(`[DEBUG SHOPIFY] Aantal unfulfilled orders volgens Shopify: ${shopifyUnfulfilledOrders.length}`);
-  console.log(`[DEBUG SHOPIFY] Shopify unfulfilled orders: ${shopifyUnfulfilledOrders.map(o => o.orderNumber).join(', ')}`);
-  
   // Fetch material settings
-  interface SettingsData {
-    materialSettings: Record<string, any>;
-    [key: string]: any;
-  }
-  
-  const { data: settingsData = { materialSettings: {} } } = useQuery<SettingsData>({
+  const { data: settingsData = { materialSettings: {} } } = useQuery({
     queryKey: ['/api/settings'],
   });
   
@@ -869,7 +594,7 @@ export default function Worksheet() {
   
   // Update filter options when items are loaded
   useEffect(() => {
-    if (allOrderItems && (allOrderItems as OrderItem[]).length > 0) {
+    if (allOrderItems && allOrderItems.length > 0) {
       const types = new Set<string>();
       const tunings = new Set<string>();
       // BELANGRIJKE FIX: Altijd A3 toevoegen als veilige optie voor de tuning filter
@@ -878,10 +603,10 @@ export default function Worksheet() {
       const colors = new Set<string>();
       const frequencies = new Set<string>();
       
-      console.log("Rebuilding filter options from", (allOrderItems as OrderItem[]).length, "items");
+      console.log("Rebuilding filter options from", allOrderItems.length, "items");
       
       // First gather all possible instrument types from items
-      (allOrderItems as OrderItem[]).forEach((item: OrderItem) => {
+      allOrderItems.forEach(item => {
         // Get type and add to set - ensure uppercase for consistent filtering
         let type = getTypeFromSpecifications(item);
         if (type) {
@@ -1083,32 +808,6 @@ export default function Worksheet() {
       });
     }
   });
-
-  // Update item workshop notes mutation - simplified without optimistic updates
-  const updateItemNotesMutation = useMutation({
-    mutationFn: async ({itemId, workshopNotes}: {itemId: number, workshopNotes: string}) => {
-      const res = await apiRequest(
-        'PATCH',
-        `/api/order-items/${itemId}`,
-        { workshopNotes }
-      );
-      return res.json();
-    },
-    onSuccess: () => {
-      // Only refetch after successful save
-      queryClient.invalidateQueries({ queryKey: ['/api/order-items'] });
-      toast({
-        title: "Notes saved",
-      });
-    },
-    onError: () => {
-      toast({
-        variant: "destructive",
-        title: "Update Failed",
-        description: "Could not update workshop notes",
-      });
-    }
-  });
   
   // Archive order mutation (updates the archived field)
   const archiveOrderMutation = useMutation({
@@ -1273,32 +972,7 @@ export default function Worksheet() {
     // Haal alle items uit de itemsByOrder groep
     const allDeDuplicatedItems: OrderItem[] = Object.values(itemsByOrder).flat();
     
-    // Special handling for A3 tuning filter to ensure all items with A3 tuning are properly detected
-    if (tuningFilter === 'A3') {
-      console.log("🚨 EMERGENCY A3 FILTER ACTIVATED - USING DEDICATED FILTER FUNCTION");
-      
-      return allDeDuplicatedItems.filter(item => {
-        // First, handle all the basic filters (deleted, archived)
-        if (item.isArchived || item.isDeleted) {
-          return false;
-        }
-        
-        // No special A3 filter logic needed anymore - this is now handled directly in Shopify
-        // Simply continue with standard tuning filter logic
-        
-        // For all other orders, check if it's a real A3 tuning
-        const dbSpecs = item.serialNumber ? safeGetFromSerialNumberDatabase(item.serialNumber) : null;
-        if (dbSpecs && dbSpecs.tuning) {
-          return dbSpecs.tuning === 'A3';
-        }
-        
-        // Fall back to specifications
-        const itemTuning = getNoteTuningFromSpecifications(item);
-        return itemTuning === 'A3';
-      });
-    }
-    
-    // Normal filtering for all other cases
+    // Normale items filteren uit de al gevalideerde, gedepliceerde lijst
     return allDeDuplicatedItems.filter(item => {
       // BELANGRIJK: Implementatie van "Toon selectie" functionaliteit
       // Als showOnlySelected actief is en dit item niet in selectedItemIds voorkomt, sla over
@@ -1309,14 +983,6 @@ export default function Worksheet() {
       // BELANGRIJK: Filter gearchiveerde items
       if (item.isArchived) {
         return false; // Skip items die gearchiveerd zijn
-      }
-      
-      // BELANGRIJK: Filter items die verwijderd zijn uit Shopify (fulfillable_quantity = 0)
-      if (item.specifications && typeof item.specifications === 'object') {
-        const specs = item.specifications as Record<string, any>;
-        if (specs.fulfillable_quantity === "0" || specs.fulfillable_quantity === 0) {
-          return false; // Skip items die verwijderd zijn uit Shopify
-        }
       }
       
       // We weten dat alle items in itemsByOrder al correct genormaliseerd zijn qua types
@@ -1337,18 +1003,12 @@ export default function Worksheet() {
       const minOrder = parseInt(minOrderNumber || '0');
       const maxOrder = maxOrderNumber ? parseInt(maxOrderNumber) : Number.MAX_SAFE_INTEGER;
       
-      // Basic order validation - now showing all orders
+      // Basic order validation
       const inRange = orderNum >= minOrder && orderNum <= maxOrder;
-      
-      // Show all orders regardless of status (don't filter out archived)
-      const notArchived = true; // Always true to show all orders
-      
-      // Still filter out completed orders
+      const notArchived = !parentOrder.archived;
       const notCompleted = parentOrder.status !== 'cancelled' && 
                          parentOrder.status !== 'shipping' && 
                          parentOrder.status !== 'delivered';
-      
-      // BELANGRIJK: We tonen nu alle orders (inclusief gearchiveerde)
       
       if (!(inRange && notArchived && notCompleted)) {
         return false;
@@ -1509,12 +1169,6 @@ export default function Worksheet() {
               // Log voor debugging
               console.log(`TUNING FILTER: Serienummer ${item.serialNumber} heeft definitieve tuning ${dbTuning} volgens database`);
               
-              // No special A3 filter logic needed anymore - now handled in Shopify
-              if (tuningFilter === 'A3' && dbTuning === 'A3') {
-                console.log(`📌 A3 TUNING MATCH: Item ${item.serialNumber} matches A3 tuning filter`);
-                return true;
-              }
-
               // Direct vergelijken met het filter (exact match)
               const exactMatch = dbTuning === tuningFilter;
               
@@ -1644,72 +1298,97 @@ export default function Worksheet() {
       
       // STATUSFILTER IMPLEMENTATIE - COMPLEET OP ITEM NIVEAU
       if (statusFilter !== null) {
-        // Controleer of de statusChangeDates property aanwezig is
-        if (!item.statusChangeDates) {
-          return false;
+        const itemId = item.id;
+        const serialNumber = item.serialNumber || `ID-${item.id}`;
+        
+        // Gebruik de statusfilter waarde direct zoals die is
+        let filterToApply = statusFilter;
+        
+        // Basis 'ordered' filter - alle items tonen
+        if (filterToApply === 'ordered') {
+          return true;
         }
         
-        // Debug: log de inhoud van statusChangeDates voor dit item om de exacte veldnamen te zien
-        if (item.statusChangeDates) {
-          console.log(`DEBUG STATUS FIELDS: Item ${item.serialNumber || 'unknown'} heeft statusvelden:`, 
-            Object.keys(item.statusChangeDates).join(', '));
-        }
-        
-        // Definieer de mapping van UI filters naar database veldnamen
-        const STATUS_MAPPING: Record<string, string | string[]> = {
-          // Speciale gevallen die meerdere velden of logica vereisen
-          'not_started': 'not_started',        // Special case for no checkboxes
-          'parts': 'ordered',                  // 'Parts' in UI is 'ordered' in DB
-          'prepared': 'validated',             // 'Prepared' in UI is 'validated' in DB
-          'build': 'building',                 // 'BUILD' in UI is 'building' in DB
-          'building': 'building',
-          'dry': 'dry',                
-          // In de statusColumns in code regel 3767 staat dat TS gemapped is naar 'testing'
-          'ts': 'testing',                     // 'TS' in UI is 'testing' in DB  
-          'testing': 'testing',                // Direct toegang tot 'testing' ook toestaan
-          'terrasigillata': 'testing',         // Voor compatibiliteit met oudere code
-          'firing': 'firing',          
-          // In de statusColumns in code regel 3769 staat dat SM gemapped is naar 'smoothing'
-          'sm': 'smoothing',                   // 'SM' in UI is 'smoothing' in DB
-          'smoothing': 'smoothing',            // Direct toegang tot 'smoothing' ook toestaan
-          'smokefiring': 'smoothing',          // Voor compatibiliteit met oudere code
-          'tuning1': 'tuning1',        
-          'ex': 'ex',                  
-          'tuning2': 'tuning2',        
-          'validated': 'validated'     
-        };
-        
-        // Gebruik de mapping om de juiste database veldnaam te vinden
-        const dbFieldRaw = STATUS_MAPPING[statusFilter.toLowerCase()] || statusFilter.toLowerCase();
-        
-        // Log voor debugging
-        console.log(`STATUS FILTER: UI value=${statusFilter}, mapped to DB field=${dbFieldRaw}`);
-        
-        // Controleer of de statusChangeDates object de juiste status bevat
-        if (Array.isArray(dbFieldRaw)) {
-          // Als het een array is, controleer of ANY van de velden aanwezig is
-          return dbFieldRaw.some(field => field in (item.statusChangeDates || {}));
-        } else {
-          // Special case for "not_started"
-          if (dbFieldRaw === 'not_started') {
-            // Return true if the item has no status dates (empty object or undefined)
-            const statusDates = item.statusChangeDates || {};
-            return Object.keys(statusDates).length === 0;
-          } else {
-            // For regular statuses, check if the field exists
-            const statusDates = item.statusChangeDates || {};
-            return Object.keys(statusDates).includes(dbFieldRaw as string);
+        // Voor specifieke productiestappen (build, dry, etc.)
+        if (filterToApply !== 'ordered') {
+          // Mapping van statusfilters naar database velden
+          // Nu de statusOptions lijst is gecorrigeerd, is deze mapping eenvoudiger
+          // Filter-waarde en database-veld zijn identiek
+          const statusMapping = {
+            'parts': 'parts', 
+            'prepared': 'prepared',
+            'build': 'building',  // Belangrijk: UI toont 'Build' maar in database is het 'building'
+            'building': 'building',
+            'dry': 'dry',
+            'firing': 'firing', 
+            'smoothing': 'smoothing',
+            'tuning1': 'tuning1',
+            'waxing': 'waxing',
+            'tuning2': 'tuning2',
+            'bagging': 'bagging',
+            'boxing': 'boxing',
+            'labeling': 'labeling',
+            'testing': 'testing',
+            'validated': 'validated'
+          };
+          
+          // Debug de statusfilter vóór vertaling
+          console.log(`StatusFilter controle voor item ${serialNumber}: filter='${filterToApply}'`);
+          
+          // Vertaal naar correcte database veldnaam
+          const dbField = statusMapping[filterToApply];
+          if (!dbField) {
+            console.log(`Item ${serialNumber}: Geen veldmapping voor '${filterToApply}'`);
+            return false;
+          }
+          
+          // Controleer of het item statusChangeDates heeft
+          if (!item.statusChangeDates) {
+            console.log(`Item ${serialNumber}: Geen statusChangeDates aanwezig`);
+            // Aanmaken van een leeg object als er geen statusChangeDates zijn
+            item.statusChangeDates = {};
+          }
+          
+          // Voor item 1525 specifiek, toon meer debug info
+          if (serialNumber.includes('1525')) {
+            console.log(`ITEM 1525 DEBUG - Status data:`, JSON.stringify(item.statusChangeDates));
+          }
+          
+          try {
+            // Zowel 'parts' als 'prepared' en alle andere statussen zijn in statusChangeDates
+            // Er zijn geen aparte velden voor 'parts' en 'prepared'
+            const statusDates = item.statusChangeDates as Record<string, string>;
+            const hasStatus = dbField in statusDates;
+            
+            // Debug logs voor filtering specifiek voor parts/prepared probleem
+            if (dbField === 'parts' || dbField === 'prepared') {
+              console.log(`${dbField} filter check voor ${serialNumber}:`, 
+                            `statusChangeDates=`, item.statusChangeDates, 
+                            `hasStatus=${hasStatus}`);
+            }
+            
+            // Dezelfde controle voor ALLE statussen
+            if (hasStatus) {
+              console.log(`✅ Item ${serialNumber} TONEN: heeft ${dbField} status op ${statusDates[dbField]}`);
+              return true;
+            } else {
+              console.log(`❌ Item ${serialNumber} GEFILTERD: geen ${dbField} status`);
+              return false;
+            }
+          } catch (error) {
+            console.error(`Error bij checken van ${dbField} voor ${serialNumber}:`, error);
+            return false;
           }
         }
+        
+        // Als geen van de statussen matcht
+        return false;
       }
       
       // Item passes all filters
       return true;
     });
   }, [allOrderItems, allOrders, typeFilter, colorFilters, tuningFilter, frequencyFilter, resellerFilter, resellers, statusFilter, minOrderNumber, maxOrderNumber, searchFilter, showOnlySelected, selectedItemIds]);
-  
-  // No special A3 tuning filtering needed anymore
-  // This comment can be removed - all orders are now handled uniformly
   
   // NIEUWE FILTER IMPLEMENTATIE om het probleem van identieke instrumenten in dezelfde order op te lossen
   const improvedFilteredOrderItems = useMemo(() => {
@@ -1754,21 +1433,12 @@ export default function Worksheet() {
       
       // Basic order validation
       const inRange = orderNum >= minOrder && orderNum <= maxOrder;
+      const notArchived = !parentOrder.archived;
+      const notCompleted = parentOrder.status !== 'cancelled' && 
+                        parentOrder.status !== 'shipping' && 
+                        parentOrder.status !== 'delivered';
       
-      // NIEUWE AANPAK: Voor buildlist volgen we Shopify's definitie van unfulfilled
-      // Een order is unfulfilled als het niet cancelled, shipping, delivered of archived is
-      // Archived orders zijn orders die in Shopify als fulfilled zijn gemarkeerd
-      // (tijdens shopify sync wordt een order gearchiveerd als het fulfilled is in Shopify)
-      // We moeten zowel de status als de archived vlag controleren
-      const isShowable = 
-          parentOrder.status !== 'cancelled' && 
-          parentOrder.status !== 'shipping' && 
-          parentOrder.status !== 'delivered' &&
-          parentOrder.status !== 'archived' &&
-          parentOrder.archived !== true; // Expliciet controleren op de archived boolean
-      
-      // We moeten alle orders tonen die niet cancelled, shipping, delivered of archived zijn
-      if (inRange && isShowable) {
+      if (inRange && notArchived && notCompleted) {
         basicFilteredOrderIds.add(orderId);
       }
     });
@@ -1859,20 +1529,17 @@ export default function Worksheet() {
       searchFilteredOrderIds.forEach(id => resellerFilteredOrderIds.add(id));
     }
     
-    // Stap 2.4: Type filter toepassen - we verzamelen nu item ID's in plaats van order ID's
+    // Stap 2.4: Type filter toepassen
     const typeFilteredOrderIds = new Set<number>();
-    // Set van itemIDs met het juiste type
-    const itemsWithTypeFilter = new Set<number>();
     
     if (typeFilter !== null) {
       console.log(`NIEUWE TYPE FILTER: Filteren op type "${typeFilter}"`);
       
-      // Loop door alle orders
       resellerFilteredOrderIds.forEach(orderId => {
         const orderItems = itemsByOrderForFiltering[orderId];
         
-        // Check ieder item in de order
-        orderItems.forEach(item => {
+        // Check of minstens één item in de order het gevraagde type heeft
+        const hasMatchingType = orderItems.some(item => {
           try {
             // Speciale case voor DOUBLE flutes met G# tuning
             if (typeFilter === 'DOUBLE') {
@@ -1884,10 +1551,7 @@ export default function Worksheet() {
                 const isLargerSize = (specsRecord.size && (specsRecord.size.toUpperCase().includes('MEDIUM') || 
                                     specsRecord.size.toUpperCase().includes('LARGE')));
                 if (isGSharp && isLargerSize) {
-                  // Dit specifieke item matcht
-                  itemsWithTypeFilter.add(item.id);
-                  typeFilteredOrderIds.add(orderId);
-                  return;
+                  return true;
                 }
               }
             }
@@ -1901,47 +1565,41 @@ export default function Worksheet() {
               if (dbSpecs) {
                 itemType = dbSpecs.type; // Gebruik het type uit de database
                 if (itemType.toUpperCase() === String(typeFilter).toUpperCase()) {
-                  // Dit specifieke item matcht
-                  itemsWithTypeFilter.add(item.id);
-                  typeFilteredOrderIds.add(orderId);
-                  return;
+                  return true;
                 }
               }
             }
             
             // Als geen match in database, val terug op oude methode
             itemType = getTypeFromSpecifications(item);
-            if (itemType && itemType.toUpperCase() === String(typeFilter).toUpperCase()) {
-              // Dit specifieke item matcht
-              itemsWithTypeFilter.add(item.id);
-              typeFilteredOrderIds.add(orderId);
-            }
+            return itemType && itemType.toUpperCase() === String(typeFilter).toUpperCase();
           } catch (error) {
             console.error(`Error bij type check voor ${item.serialNumber}:`, error);
+            return false;
           }
         });
+        
+        if (hasMatchingType) {
+          console.log(`Order ${orderId} heeft een item met type ${typeFilter}`);
+          typeFilteredOrderIds.add(orderId);
+        }
       });
-      
-      console.log(`TYPE FILTER RESULTAAT: ${itemsWithTypeFilter.size} items hebben type "${typeFilter}"`);
     } else {
       // Als er geen typefilter is, gebruik alle orders die door de vorige filters komen
       resellerFilteredOrderIds.forEach(id => typeFilteredOrderIds.add(id));
     }
     
-    // Stap 2.5: Kleur filter toepassen - item-specifieke aanpak
+    // Stap 2.5: Kleur filter toepassen
     const colorFilteredOrderIds = new Set<number>();
-    // Set van itemIDs met de juiste kleur(en)
-    const itemsWithColorFilter = new Set<number>();
     
     if (colorFilters && colorFilters.length > 0) {
       console.log(`NIEUWE KLEUR FILTER: Filteren op kleuren "${colorFilters.join(', ')}"`);
       
-      // Loop door alle orders
       typeFilteredOrderIds.forEach(orderId => {
         const orderItems = itemsByOrderForFiltering[orderId];
         
-        // Check ieder item in de order voor de gevraagde kleur
-        orderItems.forEach(item => {
+        // Check of minstens één item in de order de gevraagde kleur heeft
+        const hasMatchingColor = orderItems.some(item => {
           try {
             let itemColor = undefined;
             
@@ -1966,39 +1624,35 @@ export default function Worksheet() {
               }
             }
             
-            if (itemColor && colorFilters.includes(itemColor)) {
-              // Dit specifieke item matcht - voeg toe aan de set
-              itemsWithColorFilter.add(item.id);
-              colorFilteredOrderIds.add(orderId);
-              console.log(`Item ${item.serialNumber || 'zonder serienummer'} heeft kleur ${itemColor}`);
-            }
+            return itemColor && colorFilters.includes(itemColor);
           } catch (error) {
             console.error(`Error bij kleur check voor ${item.serialNumber}:`, error);
+            return false;
           }
         });
+        
+        if (hasMatchingColor) {
+          console.log(`Order ${orderId} heeft een item met een van de geselecteerde kleuren`);
+          colorFilteredOrderIds.add(orderId);
+        }
       });
-      
-      console.log(`KLEUR FILTER RESULTAAT: ${itemsWithColorFilter.size} items hebben een van de geselecteerde kleuren`);
     } else {
       // Als er geen kleurfilter is, gebruik alle orders die door de vorige filters komen
       typeFilteredOrderIds.forEach(id => colorFilteredOrderIds.add(id));
     }
     
-    // Stap 2.6: Tuning filter toepassen - item-specifieke aanpak
+    // Stap 2.6: Tuning filter toepassen - NIEUWE GESTRUCTUREERDE VERSIE MET UTILS
     const tuningFilteredOrderIds = new Set<number>();
-    // Set van itemIDs met de juiste tuning
-    const itemsWithTuningFilter = new Set<number>();
     
     if (tuningFilter !== null) {
       console.log(`GESTRUCTUREERDE TUNING FILTER: Filteren op tuning "${tuningFilter}"`);
       
-      // Loop door alle orders
+      // Gebruik de nieuwe filtering utils
       colorFilteredOrderIds.forEach(orderId => {
         const orderItems = itemsByOrderForFiltering[orderId];
-        const parentOrder = allOrders.find(o => o.id === orderId);
         
-        // All orders use the standard filtering approach
-        orderItems.forEach(item => {
+        // Check of minstens één item in de order de gevraagde tuning heeft
+        const hasMatchingTuning = orderItems.some(item => {
           try {
             // Haal het instrument type op
             const instrumentType = detectInstrumentType(item);
@@ -2007,43 +1661,276 @@ export default function Worksheet() {
             const itemTuning = getInstrumentTuning(item);
             
             // Als er geen tuning gevonden is, geen match
-            if (itemTuning === null) return;
+            if (itemTuning === null) return false;
             
             // Gebruik de tuning vergelijkingsfunctie die rekening houdt met instrument-specifieke regels
             const isMatch = isTuningSimilar(itemTuning, tuningFilter, instrumentType);
             
             if (isMatch) {
-              // Dit specifieke item matcht - voeg toe aan de set
-              itemsWithTuningFilter.add(item.id);
-              tuningFilteredOrderIds.add(orderId);
               console.log(`✅ MATCH: Item ${item.id} (${item.serialNumber || 'geen SN'}) met tuning ${itemTuning} matcht met filter ${tuningFilter}`);
+              return true;
             }
+            
+            return false;
           } catch (error) {
             console.error('Fout bij tuning filtering:', error);
+            return false;
           }
         });
+        
+        if (hasMatchingTuning) {
+          tuningFilteredOrderIds.add(orderId);
+        }
       });
-      
-      console.log(`TUNING FILTER RESULTAAT: ${itemsWithTuningFilter.size} items hebben tuning "${tuningFilter}"`);
     } else {
       // Als er geen tuning filter is, gebruik alle orders na color filtering
       colorFilteredOrderIds.forEach(orderId => tuningFilteredOrderIds.add(orderId));
     }
+              
+              // Determine instrument type (INNATO, NATEY, or ZEN) - critical for proper comparison
+              const isInnato = itemType?.toUpperCase().includes('INNATO') || false;
+              const isNatey = itemType?.toUpperCase().includes('NATEY') || false;
+              const isZen = itemType?.toUpperCase().includes('ZEN') || false;
+              
+              // For ZEN flutes, special L/M comparison 
+              if (isZen) {
+                if ((normalizedTuning1 === 'L' || normalizedTuning1 === 'M' || 
+                     normalizedTuning1 === 'LARGE' || normalizedTuning1 === 'MEDIUM') && 
+                    normalizedTuning2.includes(normalizedTuning1.charAt(0))) {
+                  return true;
+                }
+                
+                if ((normalizedTuning2 === 'L' || normalizedTuning2 === 'M' || 
+                     normalizedTuning2 === 'LARGE' || normalizedTuning2 === 'MEDIUM') && 
+                    normalizedTuning1.includes(normalizedTuning2.charAt(0))) {
+                  return true;
+                }
+              }
+              
+              // Extract core notes and octaves for comparison
+              // This handles A3 vs A vs A4 comparison
+              const regex1 = /([A-G][#B]?)(M)?([0-9])?/i;
+              const regex2 = /([A-G][#B]?)(M)?([0-9])?/i;
+              
+              const match1 = normalizedTuning1.match(regex1);
+              const match2 = normalizedTuning2.match(regex2);
+              
+              if (match1 && match2) {
+                const baseNote1 = match1[1]; // e.g., "A", "C#", "Bb"
+                const hasMinor1 = match1[2]?.toUpperCase() === 'M' || normalizedTuning1.includes('MINOR');
+                const octave1 = match1[3]; // e.g., "3", "4", or undefined
+                
+                const baseNote2 = match2[1];
+                const hasMinor2 = match2[2]?.toUpperCase() === 'M' || normalizedTuning2.includes('MINOR');
+                const octave2 = match2[3];
+                
+                // If base notes match (ignoring octave), continue checking
+                if (baseNote1 === baseNote2) {
+                  // Handle NATEY flutes (always in minor key with "m" suffix)
+                  if (isNatey) {
+                    // For NATEY, both should be minor or we consider them different tunings
+                    const areMinorNotesConsistent = 
+                      (hasMinor1 && hasMinor2) ||  // Both have minor indicator
+                      (!hasMinor1 && !hasMinor2);  // Neither has minor indicator
+                    
+                    // If octaves match or either lacks an octave, then compare based on that
+                    if (areMinorNotesConsistent && 
+                        (octave1 === octave2 || !octave1 || !octave2)) {
+                      console.log(`✓ NATEY special match: ${tuning1} ≈ ${tuning2}`);
+                      return true;
+                    }
+                  }
+                  
+                  // Handle INNATO flutes (always in major key, no "m" suffix)
+                  else if (isInnato) {
+                    // Just comparing base notes and octaves without minor consideration
+                    // If A3 is entered as filter, we also want to match 'A' without octave
+                    
+                    // PROBLEEM DEBUG: Specifieke debug voor 1542-42 en 1542-43 serienummers
+                    console.log(`SPECIAL DEBUG for A3: comparing ${tuning1} with ${tuning2} for itemType=${itemType}`);
+                    
+                    // Special case for A3 filter - direct matching for these problematic items
+                    if (tuning1?.includes('1542-42') || tuning1?.includes('1542-43') || 
+                        tuning2?.includes('1542-42') || tuning2?.includes('1542-43')) {
+                      console.log(`⚠️ CRITICAL ITEM DETECTED: ${tuning1} or ${tuning2} contains 1542-42/43`);
+                    }
+                    
+                    // Force-match for A3 under all circumstances
+                    if ((normalizedTuning1 === 'A3' || normalizedTuning2 === 'A3') && 
+                        (baseNote1 === 'A' || baseNote2 === 'A')) {
+                      console.log(`✓✓✓ A3 SPECIAL CASE ACTIVE: ${tuning1} ≈ ${tuning2}`);
+                      return true;
+                    }
+                    
+                    // Special case for A3 filter - make sure this always works!
+                    if (normalizedTuning1 === 'A3' || normalizedTuning2 === 'A3') {
+                      if (baseNote1 === 'A' && baseNote2 === 'A') {
+                        const hasOctave3 = 
+                          (octave1 === '3' || octave2 === '3') ||
+                          (normalizedTuning1 === 'A3' || normalizedTuning2 === 'A3');
+                        
+                        if (hasOctave3) {
+                          console.log(`✓ A3 special match found: ${tuning1} ≈ ${tuning2}`);
+                          return true;
+                        }
+                      }
+                    }
+                    
+                    // General case for other notes
+                    if ((octave1 === octave2) || (!octave1 || !octave2)) {
+                      console.log(`✓ INNATO note match: ${tuning1} ≈ ${tuning2}`);
+                      return true;
+                    }
+                  }
+                  
+                  // Generic case for other instruments
+                  else {
+                    // If base notes match and either both have minor or both don't have minor
+                    const minorMatch = hasMinor1 === hasMinor2;
+                    // If octaves match or either doesn't specify an octave
+                    const octaveMatch = octave1 === octave2 || !octave1 || !octave2;
+                    
+                    if (minorMatch && octaveMatch) {
+                      console.log(`✓ Generic note match: ${tuning1} ≈ ${tuning2}`);
+                      return true;
+                    }
+                  }
+                }
+              }
+              
+              // Extra safety - also directly check if either contains the other
+              if (normalizedTuning1.includes(normalizedTuning2) || 
+                  normalizedTuning2.includes(normalizedTuning1)) {
+                const shorterOne = normalizedTuning1.length < normalizedTuning2.length ? 
+                                  normalizedTuning1 : normalizedTuning2;
+                
+                // Only match if the contained one is at least 2 chars (avoid matching just "A" in "CARDS")
+                if (shorterOne.length >= 2) {
+                  console.log(`✓ Substring match: ${tuning1} contains/is contained in ${tuning2}`);
+                  return true;
+                }
+              }
+              
+              return false;
+            }
+            
+            // Check different sources of tuning information and compare with advanced function
+            
+            // First check serial number database
+            if (item.serialNumber) {
+              try {
+                const dbSpecs = safeGetFromSerialNumberDatabase(item.serialNumber);
+                if (dbSpecs && dbSpecs.tuning) {
+                  console.log(`Comparing DB tuning "${dbSpecs.tuning}" with filter "${tuningFilter}" for ${item.serialNumber}`);
+                  // We need to include the instrument type for proper tuning comparison
+                  const itemType = getTypeFromSpecifications(item) || (dbSpecs.type || "");
+                  if (isTuningSimilar(dbSpecs.tuning, tuningFilter, itemType)) {
+                    console.log(`✓ Match found in DB tuning for ${item.serialNumber}`);
+                    return true;
+                  }
+                }
+              } catch (e) {
+                console.error(`Error accessing serial DB for ${item.serialNumber}:`, e);
+              }
+            }
+            
+            // Then try extracting from specifications
+            try {
+              // Get tuning from item specifications
+              const itemTuning = getNoteTuningFromSpecifications(item);
+              if (itemTuning) {
+                console.log(`Comparing extracted tuning "${itemTuning}" with filter "${tuningFilter}" for ID ${item.id}`);
+                const itemType = getTypeFromSpecifications(item);
+                if (isTuningSimilar(itemTuning, tuningFilter, itemType)) {
+                  console.log(`✓ Match found in extracted tuning for ID ${item.id}`);
+                  return true;
+                }
+              }
+              
+              // Extract from type field in case its embedded there
+              const itemType = getTypeFromSpecifications(item);
+              if (itemType) {
+                // Look for patterns like "A3" directly in the type string
+                const typeStr = itemType.toString().toUpperCase();
+                const tuningMatches = typeStr.match(/\b([A-G][#B]?[0-9])\b/);
+                
+                if (tuningMatches && tuningMatches[1]) {
+                  console.log(`Found tuning "${tuningMatches[1]}" in type field for ID ${item.id}`);
+                  if (isTuningSimilar(tuningMatches[1], tuningFilter, itemType)) {
+                    console.log(`✓ Match found in type field for ID ${item.id}`);
+                    return true;
+                  }
+                }
+                
+                // Type-specific checks
+                if (typeStr.includes('ZEN') && (tuningFilter === 'L' || tuningFilter === 'M')) {
+                  if (typeStr.includes(tuningFilter)) {
+                    console.log(`✓ ZEN special match found for "${tuningFilter}" in type "${typeStr}"`);
+                    return true;
+                  }
+                }
+              }
+              
+              // Direct check in specifications object for tuning-related fields
+              if (item.specifications && typeof item.specifications === 'object') {
+                const specs = item.specifications as Record<string, any>;
+                
+                // Check if any spec field contains the tuning we're looking for
+                for (const [key, value] of Object.entries(specs)) {
+                  if (!value || typeof value !== 'string') continue;
+                  
+                  // Look for tuning-related fields
+                  if (key.toLowerCase().includes('tuning') || 
+                      key.toLowerCase().includes('note') || 
+                      key.toLowerCase() === 'key') {
+                    console.log(`Checking spec field ${key}="${value}" against filter "${tuningFilter}"`);
+                    // Get the itemType if available for this field's item
+                    const itemType = getTypeFromSpecifications(item);
+                    if (isTuningSimilar(value, tuningFilter, itemType)) {
+                      console.log(`✓ Match found in spec field ${key} for ID ${item.id}`);
+                      return true;
+                    }
+                  }
+                  
+                  // Also check if any field value contains our tuning directly
+                  if (value.includes(tuningFilter)) {
+                    console.log(`✓ Direct match found in spec field ${key} for ID ${item.id}`);
+                    return true;
+                  }
+                }
+              }
+            } catch (e) {
+              console.error(`Error in advanced tuning comparison for ID ${item.id}:`, e);
+            }
+            
+            return false;
+          } catch (error) {
+            console.error(`Error bij tuning check voor ${item.serialNumber}:`, error);
+            return false;
+          }
+        });
+        
+        if (hasMatchingTuning) {
+          console.log(`Order ${orderId} heeft een item met tuning ${tuningFilter}`);
+          tuningFilteredOrderIds.add(orderId);
+        }
+      });
+    } else {
+      // Als er geen tuningfilter is, gebruik alle orders die door de vorige filters komen
+      colorFilteredOrderIds.forEach(id => tuningFilteredOrderIds.add(id));
+    }
     
-    // Stap 2.7: Frequency filter toepassen - item-specifieke aanpak
+    // Stap 2.7: Frequency filter toepassen
     const frequencyFilteredOrderIds = new Set<number>();
-    // Set van itemIDs met de juiste frequentie
-    const itemsWithFrequencyFilter = new Set<number>();
     
     if (frequencyFilter !== null) {
       console.log(`NIEUWE FREQUENCY FILTER: Filteren op frequentie "${frequencyFilter}"`);
       
-      // Loop door alle orders
       tuningFilteredOrderIds.forEach(orderId => {
         const orderItems = itemsByOrderForFiltering[orderId];
         
-        // Check ieder item in de order voor de gevraagde frequentie
-        orderItems.forEach(item => {
+        // Check of minstens één item in de order de gevraagde frequentie heeft
+        const hasMatchingFrequency = orderItems.some(item => {
           try {
             let itemFrequency = undefined;
             
@@ -2072,125 +1959,62 @@ export default function Worksheet() {
             const frequencyStr = String(itemFrequency || '');
             const filterStr = String(frequencyFilter || '');
             
-            if (frequencyStr === filterStr) {
-              // Dit specifieke item matcht - voeg toe aan de set
-              itemsWithFrequencyFilter.add(item.id);
-              frequencyFilteredOrderIds.add(orderId);
-              console.log(`Item ${item.serialNumber || 'zonder serienummer'} heeft frequentie ${frequencyStr}`);
-            }
+            return frequencyStr === filterStr;
           } catch (error) {
             console.error(`Error bij frequency check voor ${item.serialNumber}:`, error);
+            return false;
           }
         });
+        
+        if (hasMatchingFrequency) {
+          console.log(`Order ${orderId} heeft een item met frequentie ${frequencyFilter}`);
+          frequencyFilteredOrderIds.add(orderId);
+        }
       });
-      
-      console.log(`FREQUENCY FILTER RESULTAAT: ${itemsWithFrequencyFilter.size} items hebben frequentie "${frequencyFilter}"`);
     } else {
       // Als er geen frequencyfilter is, gebruik alle orders die door de vorige filters komen
       tuningFilteredOrderIds.forEach(id => frequencyFilteredOrderIds.add(id));
     }
     
-    // Stap 2.8: Status filter toepassen - we slaan de order ID's over en gaan direct naar item filtering
-    // We verzamelen alleen item ID's die de status hebben, geen order ID's meer
-    const itemsWithStatusFilter = new Set<number>();
-    const statusDbField = statusFilter !== null ? getDbFieldForStatus(statusFilter) : "";
+    // Stap 2.8: Status filter toepassen
+    const statusFilteredOrderIds = new Set<number>();
     
     if (statusFilter !== null) {
-      console.log(`STATUS FILTER: Zoeken naar status "${statusFilter}" (DB veld: "${statusDbField}")`);
+      console.log(`NIEUWE STATUS FILTER: Filteren op status "${statusFilter}"`);
       
-      // Special handling for "not_started" filter - items without any checkboxes
-      if (statusFilter === "not_started") {
-        console.log("APPLYING NOT STARTED FILTER: Looking for items without any checkboxes");
+      frequencyFilteredOrderIds.forEach(orderId => {
+        const orderItems = itemsByOrderForFiltering[orderId];
         
-        // Count all items for debugging
-        let totalItems = 0;
-        let nonArchivedItems = 0;
-        let itemsWithOrders = 0;
-        let itemsWithNoCheckboxes = 0;
+        // Converteer UI label naar database veld
+        let dbField = statusFilter.toLowerCase();
+        if (dbField === 'parts') dbField = 'parts';
+        if (dbField === 'prepared') dbField = 'prepared';
+        if (dbField === 'build') dbField = 'building';
         
-        // Get all items first (and convert to array if it's not)
-        const itemsArray = Array.isArray(allOrderItems) ? 
-                          allOrderItems : 
-                          (allOrderItems ? Object.values(allOrderItems) : []);
-        
-        // Loop through all items
-        itemsArray.forEach(item => {
-          totalItems++;
-          
-          // Count non-archived items
-          if (!item.isArchived) {
-            nonArchivedItems++;
-            
-            // Count items that are in valid orders
-            if (frequencyFilteredOrderIds.has(item.orderId)) {
-              itemsWithOrders++;
-              
-              // Debug the statusChangeDates field
-              console.log(`DEBUG: Item ${item.serialNumber || item.id} statusChangeDates:`, 
-                         item.statusChangeDates ? 
-                         Object.keys(item.statusChangeDates).length + " checkboxes" : 
-                         "No statusChangeDates");
-              
-              // Get status change dates and checkboxes
-              const statusChangeDates = item.statusChangeDates || {};
-              const checkboxes = item.checkboxes || {};
-              
-              // Check if the item has NO status change dates (no checkboxes at all)
-              const hasNoCheckboxes = !item.statusChangeDates || 
-                                     (typeof item.statusChangeDates === 'object' && 
-                                      Object.keys(item.statusChangeDates).length === 0);
-              
-              // Advanced check - also verify checkboxes object if available
-              const hasNoCheckboxesChecked = (
-                typeof checkboxes === 'object' && 
-                Object.keys(checkboxes).filter(key => checkboxes[key] === true).length === 0
-              );
-              
-              // Only consider items with completely empty checkbox state
-              if (hasNoCheckboxes || hasNoCheckboxesChecked) {
-                itemsWithNoCheckboxes++;
-                itemsWithStatusFilter.add(item.id);
-                console.log(`Item ${item.serialNumber || 'zonder serienummer'} heeft GEEN checkboxes aangevinkt - tonen bij 'Not Started' filter`);
-              }
-            }
+        // Check of minstens één item in de order de gevraagde status heeft
+        const hasMatchingStatus = orderItems.some(item => {
+          try {
+            const statusDates = item.statusChangeDates as Record<string, string>;
+            return dbField in statusDates;
+          } catch (error) {
+            console.error(`Error bij status check voor ${item.serialNumber}:`, error);
+            return false;
           }
         });
         
-        // Log summary statistics
-        console.log(`NOT STARTED FILTER STATS: ${totalItems} total items, ${nonArchivedItems} non-archived, ${itemsWithOrders} in valid orders, ${itemsWithNoCheckboxes} with no checkboxes`);
-      } else {
-        // Regular status filtering
-        // Loop door alle items
-        allOrderItems.forEach(item => {
-          // Skip gearchiveerde items direct
-          if (item.isArchived) return;
-          
-          // Skip items waarvan de order niet door eerdere filters komt
-          if (!frequencyFilteredOrderIds.has(item.orderId)) return;
-          
-          // Check of dit item de juiste status heeft in statusChangeDates
-          const hasStatus = item.statusChangeDates && 
-                           typeof item.statusChangeDates === 'object' && 
-                           statusDbField in item.statusChangeDates;
-          
-          // Als het item de status heeft, voeg het item ID toe (niet de order)
-          if (hasStatus) {
-            itemsWithStatusFilter.add(item.id);
-            console.log(`Item ${item.serialNumber || 'zonder serienummer'} heeft status ${statusDbField}`);
-          }
-        });
-      }
-      
-      console.log(`STATUS FILTER RESULTAAT: ${itemsWithStatusFilter.size} items hebben status "${statusDbField}"`);
+        if (hasMatchingStatus) {
+          console.log(`Order ${orderId} heeft een item met status ${statusFilter}`);
+          statusFilteredOrderIds.add(orderId);
+        }
+      });
+    } else {
+      // Als er geen statusfilter is, gebruik alle orders die door de vorige filters komen
+      frequencyFilteredOrderIds.forEach(id => statusFilteredOrderIds.add(id));
     }
     
-    // We maken nog steeds een set van orders voor compatibility, maar gebruiken deze anders
-    const statusFilteredOrderIds = new Set<number>();
-    frequencyFilteredOrderIds.forEach(id => {
-      statusFilteredOrderIds.add(id);
-    });
-    
     // Stap 3: Verzamel items op basis van de gefilterde orders
+    // CRUCIALE VERBETERING: Als een item van een order voldoet aan het filter,
+    // tonen we ALLE items van die order
     const result: OrderItem[] = [];
     
     // Eerst halen we alle actieve items op
@@ -2202,71 +2026,23 @@ export default function Worksheet() {
       console.log(`Order IDs die voldoen: ${Array.from(statusFilteredOrderIds).join(', ')}`);
     }
     
-    // Bepaal of we een status filter gebruiken
-    const usingStatusFilter = statusFilter !== null;
-    
-    // Gebruik de helper functie om statusFilter te vertalen naar database veld
-    const dbField = usingStatusFilter ? getDbFieldForStatus(statusFilter!) : "";
-    
-    // Loop door alle items om te filteren
+    // Loop door alle items om te kijken of hun order id overeenkomt
     allActiveItems.forEach(item => {
       const orderId = item.orderId;
       
-      // Find the parent order for reference
-      const parentOrder = allOrders.find(o => o.id === orderId);
-      
-      // TUNING FILTER FOR REGULAR ORDERS: When tuning filter is active,
-      // we want to include items from all orders like 1537, 1540, 1548 that match our filter
-      // This is now properly handled in the main tuning filter section below
-      // No need for special pre-filtering logic here
-      
-      // Basis check: item moet bij een order horen die door de basis filters komt
-      if (frequencyFilteredOrderIds.has(orderId)) {
-        // Check voor alle item-specifieke filters:
-        
-        // 1. Type filter
-        if (typeFilter !== null && !itemsWithTypeFilter.has(item.id)) {
-          return; // Skip dit item als het niet aan de type filter voldoet
-        }
-        
-        // 2. Kleur filter
-        if (colorFilters && colorFilters.length > 0 && !itemsWithColorFilter.has(item.id)) {
-          return; // Skip dit item als het niet aan de kleur filter voldoet
-        }
-        
-        // 3. Tuning filter
-        if (tuningFilter !== null) {
-          // Check of het item de juiste tuning heeft
-          if (!itemsWithTuningFilter.has(item.id)) {
-            // Dit item heeft niet de juiste tuning
-            if (item.serialNumber) {
-              console.log(`❌ FILTER: Item ${item.serialNumber} does NOT match tuning ${tuningFilter}`);
-            }
-            return; // Skip dit item als het niet aan de tuning filter voldoet
-          }
-        }
-        
-        // 4. Frequentie filter
-        if (frequencyFilter !== null && !itemsWithFrequencyFilter.has(item.id)) {
-          return; // Skip dit item als het niet aan de frequentie filter voldoet
-        }
-        
-        // 5. Status filter
-        if (usingStatusFilter && !itemsWithStatusFilter.has(item.id)) {
-          return; // Skip dit item als het niet aan de status filter voldoet
-        }
-        
-        // 6. Selectie filter
+      // Belangrijke check: item moet bij een geselecteerde order horen
+      if (statusFilteredOrderIds.has(orderId)) {
+        // Controleer voor "Toon selectie" functionaliteit
         if (showOnlySelected && !selectedItemIds.has(item.id)) {
           return; // Skip dit item als het niet geselecteerd is
         }
         
         // Log een bericht voor specifieke cases (voor debugging)
         if (item.serialNumber && (item.serialNumber.includes('1555') || item.serialNumber.includes('1580'))) {
-          console.log(`MULTI-ITEM CHECK: Item ${item.serialNumber} behoud in resultaten omdat het voldoet aan ALLE filters`);
+          console.log(`MULTI-ITEM CHECK: Item ${item.serialNumber} behoud in resultaten omdat order ${orderId} voldoet aan filter`);
         }
         
-        // Voeg het item toe aan de resultaten - het heeft aan ALLE filters voldaan
+        // Voeg het item toe aan de resultaten
         result.push(item);
       }
     });
@@ -2279,50 +2055,6 @@ export default function Worksheet() {
   // We gebruiken de nieuwe verbeterde implementatie voor betere afhandeling van orders met meerdere items
   const selectedFilterItems = improvedFilteredOrderItems;
   console.log(`FILTER KEUZE: Nieuwe filterimplementatie in gebruik, resultaat: ${improvedFilteredOrderItems.length} items`);
-  
-  // ============== DYNAMISCHE COUNTERS DIE PRECIES OVEREENKOMEN MET DE BUILDLIST ==============
-  // We berekenen de counters op dezelfde manier als we de buildlist items groeperen
-  
-  // Functie om dezelfde berekening uit te voeren als bij de buildlist rendering
-  const calculateTableDisplayCounts = useMemo(() => {
-    // Als data nog niet geladen is, return defaults
-    if (!isBuildlistLoaded || !filteredOrderItems) {
-      return { orderCount: 0, itemCount: 0 };
-    }
-    
-    // Exact dezelfde logica als in de buildlist rendering
-    // Normaliseer de items zodat orderId altijd een nummer is
-    const normalizedItems = filteredOrderItems.map(item => {
-      const normalizedItem = { ...item };
-      normalizedItem.orderId = typeof item.orderId === 'string' 
-        ? parseInt(item.orderId) 
-        : item.orderId;
-      return normalizedItem;
-    });
-    
-    // Groepeer items per order
-    const groupedItems = normalizedItems.reduce((groups, item) => {
-      const orderIdStr = String(item.orderId);
-      if (!groups[orderIdStr]) groups[orderIdStr] = [];
-      groups[orderIdStr].push(item);
-      return groups;
-    }, {} as Record<string, OrderItem[]>);
-    
-    // Tel het aantal orders en items
-    const totalItemsInTable = filteredOrderItems.length;
-    const totalOrdersInTable = Object.keys(groupedItems).length;
-    
-    console.log(`[COUNTER DEBUG] Dynamisch berekend: ${totalOrdersInTable} orders en ${totalItemsInTable} items`);
-    
-    return {
-      orderCount: totalOrdersInTable,
-      itemCount: totalItemsInTable
-    };
-  }, [filteredOrderItems, isBuildlistLoaded]);
-  
-  // Dynamische telling op basis van dezelfde logica als de buildlist
-  const unfulfilledOrdersCount = calculateTableDisplayCounts.orderCount;
-  const itemsCount = calculateTableDisplayCounts.itemCount;
   
   // Step 2: Determine which orders to show based on the filtered items
   const validOrderIds = useMemo(() => {
@@ -2406,7 +2138,7 @@ export default function Worksheet() {
         // Verwijderd type filter debug logs voor betere prestaties
         
         // Special case for DOUBLE orders by order number
-        const DOUBLE_ORDERS = ['1530', '1530-2', '1541', '1541-2', '1546', '1547', '1548', '1550', '1551'];
+        const DOUBLE_ORDERS = ['1530', '1530-2', '1541', '1541-2', '1542', '1542-2', '1546', '1547', '1548', '1550', '1551'];
         if (filterTypeUpper === 'DOUBLE' && orderNum) {
           const orderBase = orderNum.split('-')[0];
           if (DOUBLE_ORDERS.includes(orderNum) || DOUBLE_ORDERS.includes(orderBase)) {
@@ -2484,27 +2216,21 @@ export default function Worksheet() {
         // DIRECTE DATABASE CHECK - eerst controleren of order een serienummer heeft in de database
         let matchesFilter = false;
         
-        console.log(`🔎 FILTER: Controleren van order ${order.orderNumber} voor tuning "${tuningFilter}"`);
-        
         // Order items controleren op serienummers in de database
         const orderItems = itemsByOrder[order.id] || [];
-        console.log(`🔎 FILTER: Order ${order.orderNumber} heeft ${orderItems.length} items om te controleren`);
-        
         for (const item of orderItems) {
           if ('serialNumber' in item && item.serialNumber) {
             const serialNumber = item.serialNumber;
-            console.log(`🔎 FILTER: Controleren van item met serienummer ${serialNumber}`);
             
             // Controleer via de veilige helper functie
             try {
               const dbSpecs = safeGetFromSerialNumberDatabase(serialNumber);
               if (dbSpecs && typeof dbSpecs === 'object' && 'tuning' in dbSpecs) {
-                console.log(`🔎 ORDER FILTER: Serienummer ${serialNumber} in database heeft tuning ${dbSpecs.tuning}, filter zoekt ${tuningFilter}`);
+                console.log(`ORDER FILTER: Serienummer ${serialNumber} in database heeft tuning ${dbSpecs.tuning}, filter zoekt ${tuningFilter}`);
                 
                 // VERBETERDE FILTER VERGELIJKING:
                 // 1. Directe vergelijking (exacte match)
                 let isMatch = dbSpecs.tuning === tuningFilter;
-                console.log(`🔎 DIRECTE MATCH CHECK: ${dbSpecs.tuning} === ${tuningFilter} -> ${isMatch}`);
                 
                 // 2. Als er geen match is, kijk of het een NATEY fluit is (met 'm' suffix in filter)
                 if (!isMatch && dbSpecs.type === 'NATEY' && tuningFilter && tuningFilter.includes('m')) {
@@ -2512,47 +2238,29 @@ export default function Worksheet() {
                   // bijv. filter "Cm4" moet matchen met database waarde "C4"
                   const cleanedFilter = tuningFilter.replace(/([A-G][#b]?)m([0-9])/, '$1$2');
                   isMatch = dbSpecs.tuning === cleanedFilter;
-                  console.log(`🔎 NATEY MATCH CHECK: Filter ${tuningFilter} -> ${cleanedFilter} vs ${dbSpecs.tuning} = ${isMatch}`);
+                  console.log(`NATEY MATCH CHECK: Filter ${tuningFilter} -> ${cleanedFilter} vs ${dbSpecs.tuning} = ${isMatch}`);
                 }
                 
                 // 3. Als er nog steeds geen match is, kijk of het een INNATO fluit is (zonder 'm' suffix in filter)
-                if (!isMatch && dbSpecs.type === 'INNATO' && dbSpecs.tuning && tuningFilter) {
-                  // Voor de zekerheid, nog een directe vergelijking proberen zonder suffix checks
-                  if (dbSpecs.tuning === tuningFilter) {
-                    isMatch = true;
-                    console.log(`🔎 INNATO EXACTE MATCH: ${dbSpecs.tuning} === ${tuningFilter}`);
-                  }
-                  // Als tuning een 'm' bevat, probeer deze te verwijderen
-                  else if (dbSpecs.tuning.includes('m')) {
-                    const cleanedDbTuning = dbSpecs.tuning.replace(/([A-G][#b]?)m([0-9])/, '$1$2');
-                    isMatch = cleanedDbTuning === tuningFilter;
-                    console.log(`🔎 INNATO MATCH CHECK (m verwijderen): DB ${dbSpecs.tuning} -> ${cleanedDbTuning} vs ${tuningFilter} = ${isMatch}`);
-                  }
-                  // Als tuning geen 'm' bevat maar filter wel, probeer die te matchen
-                  else if (tuningFilter.includes('m')) {
-                    const cleanedFilter = tuningFilter.replace(/([A-G][#b]?)m([0-9])/, '$1$2');
-                    isMatch = dbSpecs.tuning === cleanedFilter;
-                    console.log(`🔎 INNATO MATCH CHECK (filter m verwijderen): DB ${dbSpecs.tuning} vs Filter ${tuningFilter} -> ${cleanedFilter} = ${isMatch}`);
-                  }
+                if (!isMatch && dbSpecs.type === 'INNATO' && dbSpecs.tuning.includes('m') && tuningFilter) {
+                  // Verwijder 'm' uit de database waarde voor vergelijking met filter
+                  // bijv. database "Cm4" moet matchen met filter "C4"
+                  const cleanedDbTuning = dbSpecs.tuning.replace(/([A-G][#b]?)m([0-9])/, '$1$2');
+                  isMatch = cleanedDbTuning === tuningFilter;
+                  console.log(`INNATO MATCH CHECK: DB ${dbSpecs.tuning} -> ${cleanedDbTuning} vs ${tuningFilter} = ${isMatch}`);
                 }
                 
                 // Als er een match is, markeer de hele order als match
                 if (isMatch) {
                   matchesFilter = true;
-                  console.log(`✅ ORDER MATCH: Tuning komt overeen voor item ${serialNumber} in order ${order.orderNumber}`);
+                  console.log(`ORDER MATCH: Tuning komt overeen (aangepaste vergelijking) voor item ${serialNumber}`);
                   break; // Als er 1 item overeenkomt, is de hele order een match
-                } else {
-                  console.log(`❌ NO MATCH: Tuning komt niet overeen voor item ${serialNumber}`);
                 }
-              } else {
-                console.log(`⚠️ FILTER: Geen geldige tuning specs gevonden in database voor ${serialNumber}`);
               }
             } catch (error) {
               console.error(`Error bij controleren van serienummer ${serialNumber} voor filter:`, error);
               // Doorgaan met normale checks als database raadpleging faalt
             }
-          } else {
-            console.log(`⚠️ FILTER: Item heeft geen serienummer`);
           }
         }
         
@@ -2703,31 +2411,23 @@ export default function Worksheet() {
     }
   }, [allOrders]);
   
-  // Centrale definitie van alle status mappings die overal in de code wordt gebruikt
-  // Voor consistentie tussen UI filters en database velden
-  // STATUS_MAPPING is nu bovenaan het bestand gedefinieerd om initialized variable fouten te voorkomen
-
   // Define status options for filtering (bouwstappen)
   // Waarden moeten exact overeenkomen met de keys in statusChangeDates
-  // BELANGRIJK: de 'value' moet overeenkomen met de keys in STATUS_MAPPING!
+  // BELANGRIJK: de 'value' moet overeenkomen met de database veldnaam!
   const statusOptions = [
-    { label: 'Not Started', value: 'not_started' },  // Special value for items with no checkboxes
     { label: 'Ordered', value: 'ordered' },
     { label: 'Parts', value: 'parts' },    // Database veld is 'parts'
     { label: 'Prepared', value: 'prepared' },  // Database veld is 'prepared'
-    { label: 'Build', value: 'build' },  // UI label 'Build' vertaald naar 'building' via STATUS_MAPPING
+    { label: 'Build', value: 'building' },  // LET OP: UI toont 'Build' maar database veld is 'building'
     { label: 'Dry', value: 'dry' },
-    { label: 'TS', value: 'TS' }, // TS = Terra Sigillata, komt voor Firing
     { label: 'Firing', value: 'firing' },
-    { label: 'SM', value: 'SM' },  // SM = Smokefiring, komt na Firing
+    { label: 'Smoothing', value: 'smoothing' },
     { label: 'Tuning1', value: 'tuning1' },
     { label: 'Waxing', value: 'waxing' }, 
     { label: 'Tuning2', value: 'tuning2' },
     { label: 'Bagging', value: 'bagging' },
     { label: 'Boxing', value: 'boxing' },
-    { label: 'Labeling', value: 'labeling' },
-    { label: 'Testing', value: 'testing' },
-    { label: 'Validated', value: 'validated' }
+    { label: 'Labeling', value: 'labeling' }
   ];
   
   // Helper function to extract type from specifications
@@ -2958,15 +2658,6 @@ export default function Worksheet() {
   }
   
   // Helper function to extract color from specifications
-  function isCardsProduct(order: Order | OrderItem): boolean {
-    // Helper to consistently determine if an item is a CARDS product
-    const type = getTypeFromSpecifications(order);
-    if (!type) return false;
-    
-    // Check for 'CARDS' in the type name
-    return type.toUpperCase().includes('CARDS');
-  }
-  
   function getColorFromSpecifications(order: Order | OrderItem): string | undefined {
     // SERIENUMMER INTEGRITEIT WAARBORGEN:
     // Check eerst of dit een serienummer is waarvoor we een vaste kleur hebben
@@ -3053,17 +2744,6 @@ export default function Worksheet() {
     // Handle empty or undefined input
     if (!fullColor) return '';
     
-    // Handle specific known color combinations first
-    if (fullColor === "Blue, with Terra and Gold Bubbles") {
-      console.log("🎨 1559-1 COLOR → B:", fullColor);
-      return 'B';
-    }
-    
-    if (fullColor === "Smokefired Blue with Red and Bronze Bubbles") {
-      console.log("🎨 1559-2 COLOR → SB:", fullColor);
-      return 'SB';
-    }
-    
     // Special debugging for our problematic SW-1580-2 item
     const isTargetColor = fullColor === "Smokefired black with Terra and Copper Bubbles";
     
@@ -3103,11 +2783,9 @@ export default function Worksheet() {
                          colorLower.includes('smoke-fired');
     
     if (isSmokeFired) {
-      // RULE 2.1: SMOKEFIRED BLUE OR SMOKEFIRED BLACK (SB)
-      // Special case: "Smokefired Black" on item 1559-2 should be SB
-      if (colorLower.includes('blue') || 
-          (colorLower.includes('black') && !colorLower.includes('copper') && !colorLower.includes('terra'))) {
-        console.log('Color identified as Smokefired Blue/Black (SB):', fullColor);
+      // RULE 2.1: SMOKEFIRED BLUE (SB)
+      if (colorLower.includes('blue')) {
+        console.log('Color identified as Smokefired Blue (SB):', fullColor);
         return 'SB';
       }
       
@@ -3320,7 +2998,7 @@ export default function Worksheet() {
     // Use the utility functions to get bag size from the API material settings
     if (materialSettings) {
       // Special case for CARDS (no bag needed)
-      if (isCardsProduct(order)) {
+      if (typeUpper.includes('CARDS')) {
         console.log('CARDS product - no bag needed');
         return { type: 'None', size: '-' };
       }
@@ -3466,53 +3144,8 @@ export default function Worksheet() {
       return { type: 'OvA', size: 'OvAbag' };
     } 
     // CARDS don't need bags
-    else if (isCardsProduct(order)) {
+    else if (typeUpper.includes('CARDS')) {
       return undefined;
-    }
-    
-    return undefined;
-  }
-  
-  // Box info structure similar to bag info
-  interface BoxInfo {
-    type: string;
-    size: string;
-  }
-  
-  // Get structured box info like we do with bags
-  function getBoxInfo(order: Order | OrderItem): BoxInfo | undefined {
-    // Force dependency on materialUpdateCount to ensure the component re-renders
-    console.log(`[BOX INFO] MaterialUpdateCount: ${materialUpdateCount}`);
-    
-    if (!order.specifications) return undefined;
-    
-    const specs = order.specifications as Record<string, any>;
-    
-    // Check for custom joint box settings first (highest priority)
-    if (specs.customBoxSize && specs.useJointBox) {
-      return {
-        type: 'joint',
-        size: specs.customBoxSize
-      };
-    }
-    
-    // Check if we have a structured box entry (new format)
-    if (specs.boxType && specs.boxSize) {
-      return {
-        type: specs.boxType,
-        size: specs.boxSize
-      };
-    }
-    
-    // Check for box size in different formats
-    const boxSize = specs.boxSize || specs['Box Size'] || specs['box size'];
-    if (boxSize) {
-      // Fix E~NVELOPE to ENVELOPE
-      let size = boxSize === 'E~NVELOPE' ? 'ENVELOPE' : boxSize;
-      return {
-        type: 'standard',
-        size: size
-      };
     }
     
     return undefined;
@@ -3522,14 +3155,45 @@ export default function Worksheet() {
   function getBoxSize(order: Order | OrderItem): string | undefined {
     console.log('Getting box size for order:', order);
     
-    // Use our new BoxInfo function and just return the size
-    const boxInfo = getBoxInfo(order);
-    if (boxInfo) {
-      // For joint boxes, append " (Joint)" to the display
-      if (boxInfo.type === 'joint') {
-        return boxInfo.size + ' (Joint)';
+    // First check if box size is explicitly stored in the specifications
+    if ('specifications' in order && 
+        typeof order.specifications === 'object' && 
+        order.specifications) {
+      const specs = order.specifications as Record<string, any>;
+      
+      // Check for custom joint box settings first (highest priority)
+      if (specs.customBoxSize && specs.useJointBox) {
+        console.log('Using joint custom box size:', specs.customBoxSize);
+        return specs.customBoxSize + ' (Joint)';
       }
-      return boxInfo.size;
+      
+      // Check for box size in different formats
+      if (specs.boxSize) {
+        console.log('Using specified box size from specs.boxSize:', specs.boxSize);
+        // Fix E~NVELOPE to ENVELOPE
+        if (specs.boxSize === 'E~NVELOPE') {
+          return 'ENVELOPE';
+        }
+        return specs.boxSize;
+      }
+      
+      if (specs['Box Size']) {
+        console.log('Using specified box size from specs.Box Size:', specs['Box Size']);
+        // Fix E~NVELOPE to ENVELOPE
+        if (specs['Box Size'] === 'E~NVELOPE') {
+          return 'ENVELOPE';
+        }
+        return specs['Box Size'];
+      }
+      
+      if (specs['box size']) {
+        console.log('Using specified box size from specs.box size:', specs['box size']);
+        // Fix E~NVELOPE to ENVELOPE
+        if (specs['box size'] === 'E~NVELOPE') {
+          return 'ENVELOPE';
+        }
+        return specs['box size'];
+      }
     }
     
     // Use the utility functions to get box size from the API material settings
@@ -3633,7 +3297,7 @@ export default function Worksheet() {
       console.log('FALLBACK BOX: OVA -> Box 40x40x60');
       return '40x40x60';
     } 
-    else if (isCardsProduct(order)) {
+    else if (typeUpper.includes('CARDS')) {
       console.log('FALLBACK BOX: CARDS -> Box ENVELOPE');
       return 'ENVELOPE';
     }
@@ -3673,13 +3337,6 @@ export default function Worksheet() {
       default:
         return 'finish-color bg-gray-100 text-gray-800';
     }
-  }
-  
-  // Helper function to get exact color code as displayed in worksheet column
-  // This uses the actual detectColorCode function to ensure consistency
-  function getWorksheetColorCode(item: any): string {
-    // Use the shared utility function for consistent color detection
-    return getColorCodeFromSpecifications(item.specifications, detectInstrumentType(item));
   }
   
   // Get color class for instrument types
@@ -3794,7 +3451,7 @@ const SERIAL_NUMBER_DATABASE: Record<string, {
   color?: string,
   notes?: string
 }> = {
-  // All serial numbers are now consistently managed through the universal system
+  // De hardcoded serienummers voor order 1542 zijn verwijderd
   // Dit systeem gebruikt nu dynamische Shopify line item ID mappings om serienummers consistent te houden
   
   // Voeg hier meer serienummers toe met hun definitieve specificaties
@@ -4312,7 +3969,6 @@ function getNoteTuningFromSpecifications(order: Order | OrderItem): string | und
     daysNeeded?: number;
     isMaterialColumn?: boolean;
     materialType?: string;
-    isEditable?: boolean;
   }
 
   const statusColumns: StatusColumn[] = [
@@ -4330,9 +3986,7 @@ function getNoteTuningFromSpecifications(order: Order | OrderItem): string | und
     { id: 'box', label: 'BOX', width: 60, isMaterialColumn: true, materialType: 'box' },
     { id: 'bagging', label: 'BAG ✓', width: 40 },
     { id: 'boxing', label: 'BOX ✓', width: 40 },
-    { id: 'boxWeight', label: '⚖️', width: 40, isEditable: true },
-    { id: 'labeling', label: 'LAB ✓', width: 40 },
-    { id: 'customerNotes', label: 'Notes', width: 250, isEditable: true }
+    { id: 'labeling', label: 'LAB ✓', width: 40 }
   ];
   
   // WorksheetFilters component to display all filters in one place above the table
@@ -4389,188 +4043,8 @@ function getNoteTuningFromSpecifications(order: Order | OrderItem): string | und
   }) => {
     const queryClient = useQueryClient();
     
-    // Calculate not-started items directly from the allOrderItems data
-    // This provides the most accurate count for filtering and displaying
-    const notStartedItems = useMemo(() => {
-      if (!allOrderItems || allOrderItems.length === 0) {
-        console.log(`BANNER INFO: No order items available yet`);
-        return [];
-      }
-      
-      // We know from our logs that there are 27 instruments waiting to be built
-      // Let's simplify our filtering to match what we know is correct:
-      
-      // First, find all valid order IDs (active, non-archived orders)
-      const validOrderIds = new Set(
-        (allOrders || [])
-          .filter(order => !order.archived && order.status !== 'archived')
-          .map(order => order.id)
-      );
-      
-      console.log(`ITEM_COUNT_DEBUG: Found ${validOrderIds.size} valid orders for not-started filtering`);
-      
-      // Find the minimum order number to include (1537) - this is the oldest active order
-      // This is discovered by analyzing the data, not hardcoded
-      const orderNumbers = (allOrders || [])
-        .filter(order => !order.archived && order.status !== 'archived')
-        .map(order => {
-          // Extract numeric part from order number (e.g., "SW-1537" → 1537)
-          const match = /\d+/.exec(order.orderNumber);
-          return match ? parseInt(match[0], 10) : Number.MAX_SAFE_INTEGER;
-        })
-        .sort((a, b) => a - b);
-        
-      // Find the minimum valid order number by analyzing active orders
-      // 1537 is discovered as the oldest still-active order based on ordering date and status
-      const minOrderNumber = orderNumbers.length > 0 ? orderNumbers[0] : 1537;
-      
-      console.log(`OLDEST_ORDER: Oldest active order number is ${minOrderNumber}`);
-      
-      // Log the itemsCount and notStartedCount to verify we have the correct totals
-      console.log(`STATS_DEBUG: Current worksheet view contains ${allOrderItems.length} total items`);
-      
-      // Debug the statusFilter value when "Not Started" filter is selected
-      console.log(`WORKSHEET FILTER: Current "Not Started" filter value: ${
-        statusFilter === 'not-started' ? 'not-started' : 
-        statusFilter === null ? 'null (no filter)' : 
-        statusFilter
-      }`);
-      
-      // Check if we're using the client-side filter or the API
-      console.log(`WORKSHEET FILTER: ${statusFilter === 'not-started' ? 'Using client-side not-started items filter' : 'Not using not-started filter'}`);
-      console.log(`STATS_DEBUG: Filtering for actual not-started items...`);
-      
-      // The following criteria are used to identify not-started items:
-      // These are items that don't have any production status checkboxes marked yet
-      
-      // Important flags to count items as we go
-      let totalValidItems = 0;
-      let totalNotStartedItems = 0;
-      let itemsByOrderNumber = new Map(); // To count unique order numbers
-      
-      const filteredItems = allOrderItems
-        .filter(item => {
-          // Skip archived items
-          if (item.isArchived || item.status === 'archived') {
-            return false;
-          }
-
-          totalValidItems++;
-          
-          // Get order number to check if it's >= 1500
-          let orderNum = 0;
-          if (item.orderNumber) {
-            const matches = item.orderNumber.match(/(\d+)/);
-            if (matches && matches[1]) {
-              orderNum = parseInt(matches[1]);
-            }
-          } else if (item.serialNumber) {
-            // Try to extract from serial number
-            const matches = item.serialNumber.match(/^(\d+)-/);
-            if (matches && matches[1]) {
-              orderNum = parseInt(matches[1]);
-            }
-          }
-          
-          // Critical check: order number >= 1500 (was 1537)
-          if (orderNum < 1500) return false;
-          
-          // Skip items that don't belong to valid orders
-          const order = allOrders.find(o => o.id === item.orderId);
-          if (!order) {
-            console.log(`ITEM_COUNT_DEBUG: Item ${item.serialNumber} has invalid orderId ${item.orderId}`);
-            return false;
-          }
-            
-          // CRITICAL DEFINITION: In the production data, "not-started" items
-          // may have the "ordered" status but NO "building" or other production statuses
-          const statusDates = item.statusChangeDates || {};
-          
-          // Check for the absence of any production status
-          const productionStatuses = [
-            'building', 'build', 'dry', 'terrasigillata', 'firing', 
-            'smokefiring', 'smoothing', 'tuning1', 'waxing', 'tuning2'
-          ];
-          
-          // This determines if an item is not started: no production status dates
-          const hasNoProductionStatus = !productionStatuses.some(
-            status => statusDates[status]
-          );
-          
-          // Track items by order number for debugging
-          if (hasNoProductionStatus) {
-            totalNotStartedItems++;
-            
-            // Count by order number
-            if (!itemsByOrderNumber.has(orderNum)) {
-              itemsByOrderNumber.set(orderNum, 1);
-            } else {
-              itemsByOrderNumber.set(orderNum, itemsByOrderNumber.get(orderNum) + 1);
-            }
-            
-            // Debug log critical cases near the boundary
-            if (orderNum >= 1535 && orderNum <= 1540) {
-              console.log(`STAT_COUNT_DEBUG: Item ${item.serialNumber} (Order ${orderNum}) is NOT STARTED`);
-              console.log(`  Status dates:`, Object.keys(statusDates));
-            }
-          }
-          
-          return hasNoProductionStatus;
-        })
-        // Sort by order number to prioritize oldest orders first
-        .sort((a, b) => {
-          const aNum = parseInt(String(a.orderNumber).replace(/\D/g, '') || '0');
-          const bNum = parseInt(String(b.orderNumber).replace(/\D/g, '') || '0');
-          return aNum - bNum;
-        });
-      
-      // Print comprehensive summary information
-      console.log(`FINAL COUNTS:`);
-      console.log(`- Total valid items: ${totalValidItems}`);
-      console.log(`- Total not-started items: ${totalNotStartedItems}`);
-      console.log(`- Not-started items in filtered result: ${filteredItems.length}`);
-      
-      // Print the breakdown by order number
-      console.log(`BREAKDOWN BY ORDER NUMBER:`);
-      const orderEntries = Array.from(itemsByOrderNumber.entries())
-        .sort((a, b) => a[0] - b[0]);
-      
-      orderEntries.forEach(([orderNum, count]) => {
-        console.log(`- Order #${orderNum}: ${count} items`);
-      });
-      
-      // Log the first few items for debugging
-      if (filteredItems.length > 0) {
-        console.log(`NEXT ITEMS TO BUILD:`);
-        filteredItems.slice(0, 5).forEach((item, idx) => {
-          const itemType = item.specifications?.fluteType || 
-                         item.specifications?.type || 
-                         item.itemName || 'Unknown';
-          console.log(`  ${idx+1}. ${item.serialNumber} (Order #${item.orderNumber ? item.orderNumber.replace('SW-', '') : 'unknown'}): ${itemType}`);
-        });
-      } else {
-        console.log(`BANNER WARNING: No not-started items found - check filtering logic`);
-      }
-      
-      return filteredItems;
-    }, [allOrderItems, allOrders]);
-    
-    // Get the first not-started item (oldest by order number)
-    const nextItem = notStartedItems.length > 0 ? notStartedItems[0] : null;
-    const notStartedCount = notStartedItems.length;
-    
-    // Debug not-started count
-    console.log(`[STAT BADGE DEBUG] Not started count = ${notStartedCount}`);
-    console.log(`[STAT BADGE DEBUG] First few not-started items:`, 
-      notStartedItems.slice(0, 3).map(item => ({
-        serialNumber: item.serialNumber,
-        orderNumber: item.orderNumber,
-        statusDates: item.statusChangeDates ? Object.keys(item.statusChangeDates).length : 0
-      }))
-    );
-    
     return (
-      <div className="flex flex-wrap gap-1 items-center mb-0.5 bg-gray-50 p-2 rounded-md relative z-50"
+      <div className="flex flex-wrap gap-1 items-center mb-0.5 bg-gray-50 p-0.5 rounded-md relative z-50"
            style={{ position: 'relative', zIndex: 100 }}>
            
         {/* Order Sorting Button (kompakte versie) - verplaatst uit tabelheader */}
@@ -4586,8 +4060,6 @@ function getNoteTuningFromSpecifications(order: Order | OrderItem): string | und
         >
           <span className="text-xs">{newestFirst ? "N→O" : "O→N"}</span>
         </Button>
-        
-
 
         {/* Toon Selectie Knop - alleen icoon versie */}
         <Button 
@@ -4689,48 +4161,30 @@ function getNoteTuningFromSpecifications(order: Order | OrderItem): string | und
               <Wind className="h-3 w-3" />
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent 
-            className="w-48" 
-            align="start"
-            onClick={(e) => {
-              e.stopPropagation(); // Voorkom dat de click doorgaat naar onderliggende elementen
-              console.log("TYPE DROPDOWN CONTENT KLIK ONDERSCHEPT");
-            }}
-            style={{ pointerEvents: 'auto' }} // Zorg dat de klikevents worden opgevangen
-          >
+          <DropdownMenuContent className="w-48" align="start">
             <DropdownMenuLabel>Filter by Type</DropdownMenuLabel>
             <DropdownMenuSeparator />
-            <div 
-              className={cn("relative rounded cursor-pointer hover:bg-blue-50 pl-2 py-2", !typeFilter ? "bg-blue-50" : "")}
-              onClick={(e) => {
-                e.stopPropagation();
-                console.log("TYPE FILTER RESET");
-                setTypeFilterSafe(null);
-              }}
+            <DropdownMenuItem 
+              className={!typeFilter ? "bg-blue-50" : ""}
+              onClick={() => setTypeFilterSafe(null)}
             >
-              <div className="flex items-center">
-                <Check className={cn("mr-2 h-4 w-4", !typeFilter ? "opacity-100" : "opacity-0")} />
-                <span>All Types</span>
-              </div>
-            </div>
+              <Check className={cn("mr-2 h-4 w-4", !typeFilter ? "opacity-100" : "opacity-0")} />
+              All Types
+            </DropdownMenuItem>
             <DropdownMenuSeparator />
             {uniqueTypes.map((type) => (
-              <div
+              <DropdownMenuItem
                 key={type}
-                className={cn("relative rounded cursor-pointer hover:bg-blue-50 pl-2 py-2", typeFilter === type ? "bg-blue-50" : "")}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  console.log(`TYPE FILTER GESELECTEERD: ${type}`);
+                className={typeFilter === type ? "bg-blue-50" : ""}
+                onClick={() => {
                   // If already selected, clear the filter, otherwise set it
                   const newValue = typeFilter === type ? null : type;
                   setTypeFilterSafe(newValue);
                 }}
               >
-                <div className="flex items-center">
-                  <Check className={cn("mr-2 h-4 w-4", typeFilter === type ? "opacity-100" : "opacity-0")} />
-                  <span>{type}</span>
-                </div>
-              </div>
+                <Check className={cn("mr-2 h-4 w-4", typeFilter === type ? "opacity-100" : "opacity-0")} />
+                {type}
+              </DropdownMenuItem>
             ))}
           </DropdownMenuContent>
         </DropdownMenu>
@@ -4750,43 +4204,21 @@ function getNoteTuningFromSpecifications(order: Order | OrderItem): string | und
               <Music className="h-3 w-3" />
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent 
-            align="start" 
-            className="w-48 z-[9999] max-h-80 overflow-y-auto"
-            onClick={(e) => {
-              e.stopPropagation(); // Voorkom dat de click doorgaat naar onderliggende elementen
-              console.log("TUNING DROPDOWN CONTENT KLIK ONDERSCHEPT");
-            }}
-            style={{ pointerEvents: 'auto' }} // Zorg dat de klikevents worden opgevangen
-          >
+          <DropdownMenuContent align="start" className="w-48 z-[9999] max-h-80 overflow-y-auto">
             <DropdownMenuLabel>Filter by Tuning</DropdownMenuLabel>
             <DropdownMenuSeparator />
-            <div className="relative rounded cursor-pointer hover:bg-blue-50 pl-2 py-2" 
-                 onClick={(e) => {
-                   e.stopPropagation();
-                   console.log("TUNING FILTER RESET");
-                   setTuningFilter(null);
-                 }}>
-              <div className="flex items-center">
-                <Check className={cn("mr-2 h-4 w-4", tuningFilter === null ? "opacity-100" : "opacity-0")} />
-                <span>All Tunings</span>
-              </div>
-            </div>
+            <DropdownMenuItem onClick={() => setTuningFilter(null)}>
+              <Check className={cn("mr-2 h-4 w-4", tuningFilter === null ? "opacity-100" : "opacity-0")} />
+              All Tunings
+            </DropdownMenuItem>
             {uniqueTunings.map(tuning => (
-              <div 
-                key={tuning}
-                className="relative rounded cursor-pointer hover:bg-blue-50 pl-2 py-2"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  console.log(`TUNING FILTER GESELECTEERD: ${tuning}`);
-                  setTuningFilter(tuning);
-                }}
+              <DropdownMenuItem 
+                key={tuning} 
+                onClick={() => setTuningFilter(tuning)}
               >
-                <div className="flex items-center">
-                  <Check className={cn("mr-2 h-4 w-4", tuningFilter === tuning ? "opacity-100" : "opacity-0")} />
-                  <span>{tuning}</span>
-                </div>
-              </div>
+                <Check className={cn("mr-2 h-4 w-4", tuningFilter === tuning ? "opacity-100" : "opacity-0")} />
+                {tuning}
+              </DropdownMenuItem>
             ))}
           </DropdownMenuContent>
         </DropdownMenu>
@@ -4893,49 +4325,24 @@ function getNoteTuningFromSpecifications(order: Order | OrderItem): string | und
               <ListTodo className="h-3 w-3" />
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent 
-            align="start" 
-            className="w-48 z-[9999] max-h-80 overflow-y-auto" 
-            onClick={(e) => {
-              e.stopPropagation(); // Voorkom dat de click doorgaat naar onderliggende elementen
-              console.log("STATUS DROPDOWN CONTENT KLIK ONDERSCHEPT");
-            }}
-            style={{ pointerEvents: 'auto' }} // Zorg dat de klikevents worden opgevangen
-          >
+          <DropdownMenuContent align="start" className="w-48 z-[9999] max-h-80 overflow-y-auto">
             <DropdownMenuLabel>Filter by Status</DropdownMenuLabel>
             <DropdownMenuSeparator />
-            <div className="relative rounded cursor-pointer hover:bg-blue-50 pl-2 py-2" 
-                 onClick={(e) => {
-                   e.stopPropagation();
-                   console.log("STATUS FILTER RESET");
-                   setStatusFilter(null);
-                 }}>
-              <div className="flex items-center">
-                <Check className={cn("mr-2 h-4 w-4", statusFilter === null ? "opacity-100" : "opacity-0")} />
-                <span>All Statuses</span>
-              </div>
-            </div>
+            <DropdownMenuItem onClick={() => setStatusFilter(null)}>
+              <Check className={cn("mr-2 h-4 w-4", statusFilter === null ? "opacity-100" : "opacity-0")} />
+              All Statuses
+            </DropdownMenuItem>
             {statusOptions.map(status => (
-              <div 
-                key={status.value}
-                className="relative rounded cursor-pointer hover:bg-blue-50 pl-2 py-2"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  console.log(`STATUS FILTER GESELECTEERD: ${status.value}`);
-                  setStatusFilter(status.value);
-                }}
+              <DropdownMenuItem 
+                key={status.value} 
+                onClick={() => setStatusFilter(status.value)}
               >
-                <div className="flex items-center">
-                  <Check className={cn("mr-2 h-4 w-4", statusFilter === status.value ? "opacity-100" : "opacity-0")} />
-                  <span>{status.label}</span>
-                </div>
-              </div>
+                <Check className={cn("mr-2 h-4 w-4", statusFilter === status.value ? "opacity-100" : "opacity-0")} />
+                {status.label}
+              </DropdownMenuItem>
             ))}
           </DropdownMenuContent>
         </DropdownMenu>
-        
-        {/* Small Next Instrument Banner - right after status filter */}
-        <NextInstrumentBanner />
         
         {/* Clear All Filters Button (kompakte versie) - verwijdert nu ook zoekfilter */}
         {(typeFilter !== null || tuningFilter !== null || colorFilters.length > 0 || 
@@ -4955,10 +4362,34 @@ function getNoteTuningFromSpecifications(order: Order | OrderItem): string | und
         
         <div className="flex-grow"></div>
         
-
-        
         {/* Statistics Buttons */}
         <div className="flex items-center gap-1">
+          {/* Non-Working Period button - alleen icoon, nu links van statistiekknoppen */}
+          <Button 
+            variant="outline" 
+            className={cn(
+              "h-7 w-7 p-0 mr-1 rounded-md shadow-sm touch-target",
+              "bg-white hover:bg-[#F5F5F0] text-[#015a6c] border border-[#015a6c]"
+            )}
+            onClick={() => setShowNonWorkingForm(true)}
+            title="Track Non-Working Period"
+          >
+            <Calendar className="h-3 w-3" />
+          </Button>
+          
+          {/* Order Range Button - alleen icoon, nu links van statistiekknoppen */}
+          <Button 
+            variant="outline" 
+            className={cn(
+              "h-7 w-7 p-0 mr-3 rounded-md shadow-sm touch-target",
+              "bg-white hover:bg-[#F5F5F0] text-[#015a6c] border border-[#015a6c]"
+            )}
+            onClick={() => setShowOrderRangeSettings(true)}
+            title="Set Order Number Range"
+          >
+            <Filter className="h-3 w-3" />
+          </Button>
+
           {/* Orders Count Button - Kleur 1: #015a6c (blauw/groen) */}
           <span 
             style={{
@@ -4970,8 +4401,7 @@ function getNoteTuningFromSpecifications(order: Order | OrderItem): string | und
               fontWeight: 700,
               fontSize: '10pt',
               color: 'white',
-              backgroundColor: '#015a6c',
-              height: '28px' /* Match h-7 (28px) of other buttons */
+              backgroundColor: '#015a6c'
             }}
             title="Total orders"
             className="flex items-center justify-center"
@@ -4991,8 +4421,7 @@ function getNoteTuningFromSpecifications(order: Order | OrderItem): string | und
               fontWeight: 700,
               fontSize: '10pt',
               color: 'white',
-              backgroundColor: '#C26E50',
-              height: '28px' /* Match h-7 (28px) of other buttons */
+              backgroundColor: '#C26E50'
             }}
             title="Items to build"
             className="flex items-center justify-center"
@@ -5001,28 +4430,7 @@ function getNoteTuningFromSpecifications(order: Order | OrderItem): string | und
             {itemsCount}
           </span>
           
-          {/* Instruments To Build Button - Kleur 3: emerald/groen */}
-          <span 
-            style={{
-              minWidth: '24px',
-              padding: '0.1rem 0.3rem',
-              borderRadius: '0.25rem',
-              textAlign: 'center',
-              fontFamily: '"PT Sans Narrow", sans-serif',
-              fontWeight: 700,
-              fontSize: '10pt',
-              color: 'white',
-              backgroundColor: '#059669', /* emerald-600 */
-              height: '28px' /* Match h-7 (28px) of other buttons */
-            }}
-            title="Aantal instrumenten dat nog gebouwd moet worden"
-            className="flex items-center justify-center"
-          >
-            <Construction className="h-3 w-3 mr-1" />
-            {notStartedCount}
-          </span>
-          
-          {/* Average Wait Time Button - Kleur 4: grijs */}
+          {/* Average Wait Time Button - Kleur 3: grijs */}
           <div 
             style={{
               minWidth: '24px',
@@ -5036,27 +4444,13 @@ function getNoteTuningFromSpecifications(order: Order | OrderItem): string | und
               backgroundColor: 'rgb(55, 65, 81)', /* gray-700 */
               display: 'flex',
               alignItems: 'center',
-              justifyContent: 'center',
-              height: '28px' /* Match h-7 (28px) of other buttons */
+              justifyContent: 'center'
             }}
             title="Gemiddelde wachttijd berekend over voltooide orders uit afgelopen 6 maanden"
           >
             <TimerIcon className="h-3 w-3 mr-1" />
             <WaitTimeDisplay allOrders={allOrders} />
           </div>
-          
-          {/* Non-Working Period button - na de statistiekknoppen */}
-          <Button 
-            variant="outline" 
-            className={cn(
-              "h-7 w-7 p-0 ml-1 rounded-md shadow-sm touch-target",
-              "bg-white hover:bg-[#F5F5F0] text-[#015a6c] border border-[#015a6c]"
-            )}
-            onClick={() => setShowNonWorkingForm(true)}
-            title="Track Non-Working Period"
-          >
-            <Calendar className="h-3 w-3" />
-          </Button>
 
           {/* Sync Controls - rechts van de statistiekknoppen */}
           <div className="flex items-center">
@@ -5169,8 +4563,6 @@ function getNoteTuningFromSpecifications(order: Order | OrderItem): string | und
               SYNC
             </Button>
           </div>
-          
-          {/* Original large next item banner removed */}
         </div>
       </div>
     );
@@ -5182,16 +4574,14 @@ function getNoteTuningFromSpecifications(order: Order | OrderItem): string | und
     console.log(`isStatusComplete check voor ${('serialNumber' in order ? order.serialNumber : 'order')}: status=${status}`);
     
     // Mapping van UI statusnamen naar database velden
-    const statusMapping: Record<string, string> = {
+    const statusMapping = {
       'parts': 'parts', 
       'prepared': 'prepared',
       'build': 'building',  // UI toont 'Build' maar database veld is 'building'
       'building': 'building',
       'dry': 'dry',
-      'terrasigillata': 'terrasigillata', // Nieuwe TS stap
       'firing': 'firing', 
-      'smokefiring': 'smokefiring',  // Nieuwe SM stap
-      'smoothing': 'smoothing',      // Oude naam behouden voor compatibiliteit
+      'smoothing': 'smoothing',
       'tuning1': 'tuning1',
       'waxing': 'waxing',
       'tuning2': 'tuning2',
@@ -5221,7 +4611,7 @@ function getNoteTuningFromSpecifications(order: Order | OrderItem): string | und
     }
     
     // Special case for SM (smoothing) checkbox - auto-checked for smoke-fired colors (SB, T, TB, C)
-    if (status === 'smoothing' || status === 'smokefiring') {
+    if (status === 'smoothing') {
       // Check if it's a CARDS product (don't auto-check)
       const type = getTypeFromSpecifications(order);
       const isCards = type?.toUpperCase().includes('CARDS');
@@ -5233,7 +4623,7 @@ function getNoteTuningFromSpecifications(order: Order | OrderItem): string | und
       // Auto-check if this is one of the smoke-fired colors (SB, T, TB, C)
       if (needsSmokeFiring(order)) {
         // Make this auto-check more visible in the UI for testing
-        console.log(`Auto-checking ${status} checkbox for smoke-fired color:`, getColorFromSpecifications(order));
+        console.log("Auto-checking SM checkbox for smoke-fired color:", getColorFromSpecifications(order));
         return true;
       }
     }
@@ -5310,55 +4700,6 @@ function getNoteTuningFromSpecifications(order: Order | OrderItem): string | und
     }
   };
   
-  // Handle updating box weight for an item
-  const handleBoxWeightChange = (itemId: number, weight: string) => {
-    console.log(`Updating item ${itemId} box weight to ${weight}`);
-    
-    try {
-      // Find the item to update
-      const itemIndex = allOrderItems.findIndex(i => i.id === itemId);
-      if (itemIndex === -1) {
-        console.error(`Item with ID ${itemId} not found in allOrderItems`);
-        return;
-      }
-      
-      const itemToUpdate = allOrderItems[itemIndex];
-      const newItems = [...allOrderItems];
-      
-      // Create the update data
-      const updateData = {
-        weight: weight
-      };
-      
-      // Create updated item
-      const updatedItem = {
-        ...itemToUpdate,
-        ...updateData
-      };
-      
-      // Replace the item in our local array
-      newItems[itemIndex] = updatedItem;
-      
-      // Update the cache immediately for UI responsiveness
-      queryClient.setQueryData(['/api/order-items'], newItems);
-      
-      // Use offline mode to handle the update
-      updateOfflineOrderItem(itemId, updateData)
-        .then(() => {
-          console.log(`Successfully updated item ${itemId} box weight in offline storage`);
-          
-          // Refetch to ensure data is fresh
-          setTimeout(() => {
-            queryClient.refetchQueries({ queryKey: ['/api/order-items'] });
-          }, 500);
-        })
-        .catch(err => console.error(`Failed to update item ${itemId} box weight in offline storage:`, err));
-      
-    } catch (error) {
-      console.error(`Error updating box weight for item ${itemId}:`, error);
-    }
-  };
-
   // Handle status change for item with immediate UI feedback
   const handleItemStatusChange = (itemId: number, status: string, checked: boolean) => {
     console.log(`Updating item ${itemId} status ${status} to ${checked ? 'checked' : 'unchecked'}`);
@@ -5458,15 +4799,7 @@ function getNoteTuningFromSpecifications(order: Order | OrderItem): string | und
       
       // Use offline mode to handle the update
       updateOfflineOrderItem(itemId, updateData)
-        .then(() => {
-          console.log(`Successfully updated item ${itemId} status ${status} in offline storage`);
-          
-          // Simply refetch the data without complex invalidation
-          // This will ensure NextInstrumentBanner gets fresh data
-          setTimeout(() => {
-            queryClient.refetchQueries({ queryKey: ['/api/order-items'] });
-          }, 500); // Small delay to ensure the server has processed the update
-        })
+        .then(() => console.log(`Successfully updated item ${itemId} status ${status} in offline storage`))
         .catch(err => console.error(`Failed to update item ${itemId} status in offline storage:`, err));
       
       // Keep multi-item orders expanded when they were already expanded
@@ -5492,20 +4825,6 @@ function getNoteTuningFromSpecifications(order: Order | OrderItem): string | und
   
   // Handle material update (bags and boxes)
   const handleMaterialUpdate = (id: number, isOrder: boolean, materialType: 'bag' | 'box', materialInfo: any) => {
-    console.log(`Updating ${materialType} for ${isOrder ? 'order' : 'item'} ${id} with info:`, materialInfo);
-    
-    // Force UI to refresh immediately
-    forceRefreshMaterials();
-    // Extra refresh to ensure components update
-    setMaterialUpdateCount(prevCount => prevCount + 1);
-    
-    // Create a toast to indicate update in progress
-    toast({
-      title: `Updating ${materialType}`,
-      description: `Saving new ${materialType} selection...`,
-      duration: 2000
-    });
-    
     // Get existing data
     if (isOrder) {
       const orders = queryClient.getQueryData<Order[]>(['/api/orders']) || [];
@@ -5541,24 +4860,8 @@ function getNoteTuningFromSpecifications(order: Order | OrderItem): string | und
       // Update the local cache immediately
       queryClient.setQueryData(['/api/orders'], newOrders);
       
-      // Make the server request and force refresh
-      updateOfflineOrder(id, { specifications: updatedSpecs })
-        .then(() => {
-          console.log("Order specifications updated successfully");
-          // Force immediate refresh of the data
-          queryClient.invalidateQueries({ queryKey: ['/api/orders'] });
-          // Force immediate refresh of the material components
-          setMaterialUpdateCount(prev => prev + 10); // Use a larger increment to ensure change detection
-          // Force a global UI refresh immediately
-          setTimeout(() => {
-            queryClient.refetchQueries({ queryKey: ['/api/orders'] });
-            queryClient.refetchQueries({ queryKey: ['/api/order-items'] });
-            forceRefreshMaterials();
-          }, 50);
-        })
-        .catch(error => {
-          console.error("Failed to update order specifications:", error);
-        });
+      // Make the server request
+      updateOfflineOrder(id, { specifications: updatedSpecs });
       
       toast({
         title: `${materialType === 'bag' ? 'Bag' : 'Box'} updated`,
@@ -5599,24 +4902,8 @@ function getNoteTuningFromSpecifications(order: Order | OrderItem): string | und
       // Update the local cache immediately
       queryClient.setQueryData(['/api/order-items'], newItems);
       
-      // Make the server request and force refresh
-      updateOfflineOrderItem(id, { specifications: updatedSpecs })
-        .then(() => {
-          console.log("Item specifications updated successfully");
-          // Force immediate refresh of the data
-          queryClient.invalidateQueries({ queryKey: ['/api/order-items'] });
-          // Force immediate refresh of the material components
-          setMaterialUpdateCount(prev => prev + 10); // Use a larger increment to ensure change detection
-          // Force a global UI refresh immediately
-          setTimeout(() => {
-            queryClient.refetchQueries({ queryKey: ['/api/orders'] });
-            queryClient.refetchQueries({ queryKey: ['/api/order-items'] });
-            forceRefreshMaterials();
-          }, 50);
-        })
-        .catch(error => {
-          console.error("Failed to update item specifications:", error);
-        });
+      // Make the server request
+      updateOfflineOrderItem(id, { specifications: updatedSpecs });
       
       toast({
         title: `${materialType === 'bag' ? 'Bag' : 'Box'} updated`,
@@ -6320,79 +5607,6 @@ function getNoteTuningFromSpecifications(order: Order | OrderItem): string | und
                       </div>
                     </div>
                     
-                    {/* Urgent Order Toggle */}
-                    <div className="rounded-md border p-3 bg-gray-50">
-                      <div className="text-sm font-medium text-gray-700 mb-2">Priority</div>
-                      <div className="flex items-center space-x-2">
-                        <Checkbox 
-                          id={`urgent-${selectedOrder?.id}`}
-                          checked={selectedOrder?.isUrgent || false}
-                          onCheckedChange={async (checked) => {
-                            if (!selectedOrder) return;
-                            
-                            try {
-                              const response = await fetch(`/api/orders/${selectedOrder.id}/urgent`, {
-                                method: 'PATCH',
-                                headers: {
-                                  'Content-Type': 'application/json',
-                                },
-                                body: JSON.stringify({ isUrgent: checked }),
-                              });
-                              
-                              if (!response.ok) {
-                                throw new Error('Failed to update urgent status');
-                              }
-                              
-                              // Get the updated order data from the response
-                              const updatedOrder = await response.json();
-                              
-                              // Update the local cache immediately
-                              queryClient.setQueryData(['/api/orders'], (old: Order[] | undefined) => {
-                                if (!old) return old;
-                                return old.map(order => {
-                                  if (order.id === selectedOrder.id) {
-                                    return { ...order, isUrgent: checked };
-                                  }
-                                  return order;
-                                });
-                              });
-                              
-                              // Also update the selectedOrder state to reflect the change
-                              setSelectedOrder(prev => prev ? { ...prev, isUrgent: checked } : prev);
-                              
-                              // Refresh orders data to ensure consistency
-                              queryClient.invalidateQueries({ queryKey: ['/api/orders'] });
-                              
-                              toast({
-                                title: checked ? "Order marked as urgent" : "Order marked as normal priority",
-                                description: `Order ${selectedOrder.orderNumber} priority updated`,
-                                duration: 2000
-                              });
-                            } catch (error) {
-                              toast({
-                                title: "Error",
-                                description: "Failed to update order priority",
-                                variant: "destructive",
-                                duration: 3000
-                              });
-                            }
-                          }}
-                          className="h-4 w-4"
-                        />
-                        <label 
-                          htmlFor={`urgent-${selectedOrder?.id}`} 
-                          className="text-sm cursor-pointer select-none"
-                        >
-                          Mark as urgent order
-                        </label>
-                      </div>
-                      {selectedOrder?.isUrgent && (
-                        <div className="mt-1 text-xs text-red-600 font-medium">
-                          🚨 This order will appear at the top of the list
-                        </div>
-                      )}
-                    </div>
-                    
                     <div className="rounded-md border p-3 bg-gray-50">
                       <div className="text-sm font-medium text-gray-700 mb-1">Quick Actions</div>
                       <div className="grid grid-cols-2 gap-1 mt-2">
@@ -6527,6 +5741,7 @@ function getNoteTuningFromSpecifications(order: Order | OrderItem): string | und
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      
       {/* Order Range Settings Dialog */}
       <Dialog open={showOrderRangeSettings} onOpenChange={setShowOrderRangeSettings}>
         <DialogContent className="max-w-md w-[90vw] p-4 sm:p-5">
@@ -6592,6 +5807,7 @@ function getNoteTuningFromSpecifications(order: Order | OrderItem): string | und
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      
       {/* Joint Box Assignment Dialog */}
       <Dialog open={jointBoxDialogOpen} onOpenChange={setJointBoxDialogOpen}>
         <DialogContent className="max-w-md w-[90vw] p-4 sm:p-5">
@@ -6697,6 +5913,7 @@ function getNoteTuningFromSpecifications(order: Order | OrderItem): string | und
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      
       <div className="flex flex-row-reverse justify-between items-center mb-1">
         <div className="flex items-center gap-3 order-last">
           {/* Non-working periods indicator */}
@@ -6755,6 +5972,7 @@ function getNoteTuningFromSpecifications(order: Order | OrderItem): string | und
           {/* Zoekbalk, Calendar knop, Range knop en Sync knop zijn verplaatst naar de filterbalk */}
         </div>
       </div>
+      
       {/* WorksheetFilters component */}
       <WorksheetFilters
         typeFilter={typeFilter}
@@ -6782,6 +6000,7 @@ function getNoteTuningFromSpecifications(order: Order | OrderItem): string | und
         setShowOnlySelected={setShowOnlySelected}
         hasSelectedItems={hasSelectedItems}
       />
+      
       {/* Non-Working Period Dialog */}
       <Dialog open={showNonWorkingForm} onOpenChange={setShowNonWorkingForm}>
         <DialogContent className="sm:max-w-md">
@@ -6870,6 +6089,7 @@ function getNoteTuningFromSpecifications(order: Order | OrderItem): string | und
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      
       <div className="rounded-md border bg-white mt-0 mb-0 pb-0 overflow-auto h-[calc(100vh-130px)]">
         <Table className="sticky-header-table mb-0 pb-0 relative">
           <TableHeader className="z-10">
@@ -6899,22 +6119,14 @@ function getNoteTuningFromSpecifications(order: Order | OrderItem): string | und
               
               {/* Status columns */}
               {statusColumns.map(col => (
-                <TableHead 
-                  key={col.id} 
-                  className="sticky-header sticky top-0 text-center bg-[#015a6c] text-white p-1 whitespace-nowrap min-w-[28px] z-[110] font-condensed"
-                  style={{ 
-                    width: col.width ? `${col.width}px` : undefined,
-                    minWidth: col.width ? `${col.width}px` : undefined,
-                    maxWidth: col.width ? `${col.width}px` : undefined
-                  }}
-                >
+                <TableHead key={col.id} className="sticky-header sticky top-0 text-center bg-[#015a6c] text-white p-1 whitespace-nowrap min-w-[28px] z-[110] font-condensed">
                   <span className="text-white font-bold">{col.label}</span>
                 </TableHead>
               ))}
             </TableRow>
           </TableHeader>
           <TableBody className="divide-y divide-gray-300">
-            {isLoadingOrders || isLoadingOrderItems ? (
+            {isLoadingOrders || isLoadingItems ? (
               <TableRow>
                 <TableCell colSpan={20} className="text-center py-10">
                   Loading orders...
@@ -6930,49 +6142,45 @@ function getNoteTuningFromSpecifications(order: Order | OrderItem): string | und
               // VOLLEDIGE HERZIENING VAN WEERGAVELOGICA OM HET BILLY-ORDERS PROBLEEM PERMANENT OP TE LOSSEN
               // Group by order for visual organization and apply sorting
               // VERBETERD: Bouw nieuwe, volledig gecontroleerde groepen voor elk orderId
-              ((() => {
-                console.log(`BUILDLIST RENDERING START: Processing ${filteredOrderItems.length} items`);
-                // Maak een nieuwe genormaliseerde versie van filteredOrderItems
-                const normalizedItems = filteredOrderItems.map(item => {
-                  // Garandeer dat orderId ALTIJD een nummer is
-                  const normalizedItem = { ...item };
+              Object.entries(
+                // Eerst zorgen we ervoor dat ALLE items correct worden genormaliseerd
+                // voordat we ze gaan groeperen
+                (() => {
+                  // Maak een nieuwe genormaliseerde versie van filteredOrderItems
+                  const normalizedItems = filteredOrderItems.map(item => {
+                    // Garandeer dat orderId ALTIJD een nummer is
+                    const normalizedItem = { ...item };
+                    
+                    // Negeer het originele type, dwing altijd nummer af
+                    normalizedItem.orderId = typeof item.orderId === 'string' 
+                      ? parseInt(item.orderId) 
+                      : item.orderId;
+                    
+                    // Validatie log voor Billy's items
+                    if (normalizedItem.orderId === 32 || normalizedItem.orderId === 33) {
+                      console.log(`[BILLY FINAL FIX] Item ${item.serialNumber} orderId nu consistent als nummer: ${normalizedItem.orderId}`);
+                    }
+                    
+                    return normalizedItem;
+                  });
                   
-                  // Negeer het originele type, dwing altijd nummer af
-                  normalizedItem.orderId = typeof item.orderId === 'string' 
-                    ? parseInt(item.orderId) 
-                    : item.orderId;
-                  
-                  return normalizedItem;
-                });
-                
-                // KRITISCHE FIX: We gebruiken ALLEEN DE GEFILTERDE items!
-                // Alleen werken met de items die door alle filters zijn gekomen
-                const onlyFilteredItems = normalizedItems;
-                
-                // Nu groeperen we ALLEEN de gefilterde items
-                const groupedItems = onlyFilteredItems.reduce((groups, item) => {
-                  // We gebruiken een string als key voor het object (vereist in JavaScript)
-                  const orderIdStr = String(item.orderId);
-                  
-                  // Init array voor deze order als die nog niet bestaat
-                  if (!groups[orderIdStr]) {
-                    groups[orderIdStr] = [];
-                  }
-                  
-                  // Voeg item toe aan de juiste groep
-                  groups[orderIdStr].push(item);
-                  return groups;
-                }, {} as Record<string, OrderItem[]>);
-                
-                // BELANGRIJKE DIAGNOSE: Logt een exacte telling van wat er getoond gaat worden
-                const orderCount = Object.keys(groupedItems).length;
-                const itemCount = Object.values(groupedItems).reduce((sum, items) => sum + items.length, 0);
-                
-                console.log(`BUILDLIST RENDERING: Showing exactly ${orderCount} orders with ${itemCount} items in buildlist`);
-                
-                // We geven de grouped items terug
-                return Object.entries(groupedItems);
-              })()
+                  // Nu groeperen we de genormaliseerde items
+                  return normalizedItems.reduce((groups, item) => {
+                    // Nu werken we alleen met nummers, geen string conversion nodig
+                    // We gebruiken een string als key voor het object (vereist in JavaScript)
+                    const orderIdStr = String(item.orderId);
+                    
+                    // Init array voor deze order als die nog niet bestaat
+                    if (!groups[orderIdStr]) {
+                      groups[orderIdStr] = [];
+                    }
+                    
+                    // Voeg item toe aan de juiste groep
+                    groups[orderIdStr].push(item);
+                    return groups;
+                  }, {} as Record<string, OrderItem[]>);
+                })()
+              )
               // Sort the grouped items by order number according to the sort setting
               .sort((a, b) => {
                 const orderIdA = parseInt(a[0]);
@@ -6985,11 +6193,7 @@ function getNoteTuningFromSpecifications(order: Order | OrderItem): string | und
                 
                 if (!orderA || !orderB) return 0;
                 
-                // URGENT ORDER PRIORITIZATION: Urgent orders always come first
-                if (orderA.isUrgent && !orderB.isUrgent) return -1;
-                if (!orderA.isUrgent && orderB.isUrgent) return 1;
-                
-                // If both are urgent or both are normal, sort by order number
+                // Extract order numbers for sorting
                 const orderNumberA = parseInt(orderA.orderNumber?.replace(/\D/g, '') || '0');
                 const orderNumberB = parseInt(orderB.orderNumber?.replace(/\D/g, '') || '0');
                 
@@ -7001,51 +6205,6 @@ function getNoteTuningFromSpecifications(order: Order | OrderItem): string | und
                 const order = allOrders.find(order => Number(order.id) === Number(orderId));
                 if (!order) return null; // Skip if parent order not found
                 
-                // For multi-item orders, we need to properly sort by numerical suffix
-                // This ensures consistent display order regardless of how they're stored in the database
-                if (items.length > 1) {
-                  // In React, we need to replace the array entirely to trigger a re-render
-                  // with the new sorted items, so we need to create a sorted copy
-                  const sortedItems = [...items].sort((a, b) => {
-                    // Skip if missing serial numbers
-                    if (!a.serialNumber || !b.serialNumber) return 0;
-                    
-                    // Natural sort algorithm that handles numeric parts correctly
-                    // This will work for ANY serial number pattern with numeric suffixes
-                    return naturalSort(a.serialNumber, b.serialNumber);
-                  });
-                  
-                  // Replace all items in the original array with the sorted ones
-                  items.length = 0;
-                  sortedItems.forEach(item => items.push(item));
-                }
-                
-                // Natural sort function that handles numeric values properly
-                // This is a generic implementation that works for all serial number formats
-                function naturalSort(a: string, b: string): number {
-                  // Split strings into chunks of text and numbers
-                  const aParts = a.split(/(\d+)/).filter(Boolean);
-                  const bParts = b.split(/(\d+)/).filter(Boolean);
-                  
-                  // Compare each chunk
-                  const len = Math.min(aParts.length, bParts.length);
-                  
-                  for (let i = 0; i < len; i++) {
-                    // If both chunks are numeric, compare as numbers
-                    if (!isNaN(Number(aParts[i])) && !isNaN(Number(bParts[i]))) {
-                      const diff = parseInt(aParts[i], 10) - parseInt(bParts[i], 10);
-                      if (diff !== 0) return diff;
-                    } 
-                    // Otherwise compare as strings
-                    else if (aParts[i] !== bParts[i]) {
-                      return aParts[i].localeCompare(bParts[i]);
-                    }
-                  }
-                  
-                  // If we get here, the common parts are equal, so the longer one is greater
-                  return aParts.length - bParts.length;
-                }
-                
                 // Handle orders with zero items (which shouldn't happen with our filtering)
                 if (items.length === 0) {
                   return (
@@ -7053,10 +6212,7 @@ function getNoteTuningFromSpecifications(order: Order | OrderItem): string | und
                       key={order.id} 
                       className={`hover:bg-gray-50 divide-x border-b border-dotted ${isOrderSelected(order.id) ? 'selected-row bg-gray-200' : order.id % 2 === 0 ? 'bg-[#FCFCFB]' : 'bg-[#F5F5F0]'}`}>
                       <TableCell 
-                        className={`font-bold sticky left-0 p-1 whitespace-nowrap z-20 ${
-                          order.isUrgent ? 'bg-red-600' : 
-                          order.isReseller ? 'bg-[#59296e]' : 'bg-[#015a6c]'
-                        } align-top cursor-pointer order-number-cell`}
+                        className={`font-bold sticky left-0 p-1 whitespace-nowrap z-20 ${order.isReseller ? 'bg-[#59296e]' : 'bg-[#015a6c]'} align-top cursor-pointer order-number-cell`}
                         style={{ zIndex: 20 }}
                         onClick={() => handleOrderClick(order)}
                       >
@@ -7087,6 +6243,7 @@ function getNoteTuningFromSpecifications(order: Order | OrderItem): string | und
                           </div>
                         </div>
                       </TableCell>
+
                       <TableCell 
                         className={`p-1 whitespace-nowrap text-center ${isOrderSelected(order.id) ? 'bg-gray-200' : (order.id % 2 === 0 ? 'bg-[#FCFCFB]' : 'bg-[#F5F5F0]')}`}
                       >
@@ -7152,7 +6309,7 @@ function getNoteTuningFromSpecifications(order: Order | OrderItem): string | und
                                              
                             if (instrumentType) {
                               return (
-                                <MoldNamePopover customerName={order.customerName} orderNumber={order.orderNumber} serialNumber={item.serialNumber} itemPosition={`${index+1}/${allOrderItems.filter(i => i.orderId === order.id).length}`} instrumentType={instrumentType} tuningNote={tuningNote || ''} frequency={freqValue} orderNotes={order.notes || ''} itemSpecifications={item.specifications || {}} calculatedColor={getWorksheetColorCode(item)}
+                                <MoldNamePopover customerName={order.customerName} orderNumber={order.orderNumber} serialNumber={item.serialNumber} itemPosition={`${index+1}/${allOrderItems.filter(i => i.orderId === order.id).length}`} instrumentType={instrumentType} tuningNote={tuningNote || ''} frequency={freqValue} orderNotes={order.notes || ''} itemSpecifications={item.specifications || {}}
                                 >
                                   <CombinedInstrumentTuningBadge
                                     instrumentType={instrumentType}
@@ -7245,15 +6402,9 @@ function getNoteTuningFromSpecifications(order: Order | OrderItem): string | und
                                   <PopoverTrigger asChild>
                                     <button className="w-full cursor-pointer">
                                       {bagInfo ? (
-                                        isCardsProduct(order) ? (
-                                          <span className="text-xs text-gray-400">No bag needed</span>
-                                        ) : (
-                                          <span className={`bag-label bag-${bagInfo.size} bag-${bagInfo.type}`}>
-                                            <span className="font-bold text-white">
-                                              {`${bagInfo.type.toUpperCase()} ${bagInfo.size.toUpperCase()}`}
-                                            </span>
-                                          </span>
-                                        )
+                                        <span className={`bag-label bag-${bagInfo.size} bag-${bagInfo.type}`}>
+                                          <span className="font-bold text-white">{bagInfo.type.toUpperCase()} {bagInfo.size.toUpperCase()}</span>
+                                        </span>
                                       ) : (
                                         <span className="text-gray-500 hover:text-gray-800">Assign bag</span>
                                       )}
@@ -7296,7 +6447,6 @@ function getNoteTuningFromSpecifications(order: Order | OrderItem): string | und
                             );
                           } else if (col.id === 'box') {
                             // Get instrument type and tuning to determine correct box size
-                            console.log(`Box info calculation with update count ${materialUpdateCount}`);
                             const instrumentType = getTypeFromSpecifications(order);
                             const tuningNote = getNoteTuningFromSpecifications(order);
                             let boxSize: string | undefined;
@@ -7362,9 +6512,6 @@ function getNoteTuningFromSpecifications(order: Order | OrderItem): string | und
                               return 'box-large'; // 35, 40, 50
                             };
                             
-                            // Add a key-based render trigger that depends on materialUpdateCount
-                            console.log(`Box component rendering with update count: ${materialUpdateCount}`);
-                            
                             // All available box sizes
                             const boxSizes = ['20x20x20', '30x30x30', '35x35x35', '40x40x40', '50x50x50', '15x15x15', '12x12x30', 
                               '35x35x35', '40x40x60', 'Envelope'];
@@ -7379,15 +6526,9 @@ function getNoteTuningFromSpecifications(order: Order | OrderItem): string | und
                               >
                                 <Popover>
                                   <PopoverTrigger asChild>
-                                    <button 
-                                      className="w-full cursor-pointer"
-                                      key={`box-btn-${order.id}-${item?.id || 'order'}-${materialUpdateCount}`} // Force re-render on materialUpdateCount change
-                                    >
-                                      {/* Adding the materialUpdateCount in a hidden way forces re-evaluation */}
-                                      <span className="hidden">{materialUpdateCount}</span>
-                                      {/* Go back to simpler approach that works */}
+                                    <button className="w-full cursor-pointer">
                                       {boxSize ? (
-                                        <span id={`box-order-${order.id}`} className={`box-label ${getBoxSizeClass(boxSize)}`}>
+                                        <span className={`box-label ${getBoxSizeClass(boxSize)}`}>
                                           <span className="font-bold text-white">{boxSize.toUpperCase()}</span>
                                         </span>
                                       ) : (
@@ -7403,31 +6544,16 @@ function getNoteTuningFromSpecifications(order: Order | OrderItem): string | und
                                           <button
                                             key={size}
                                             className={`text-xs px-2 py-1 rounded border ${
-                                              boxSize === size.replace(/X/g, 'x')
+                                              boxSize === size
                                                 ? 'bg-primary text-white'
                                                 : 'bg-white hover:bg-gray-100'
                                             }`}
-                                            onClick={() => {
-                                              // Show a notification
-                                              toast({
-                                                title: "Updating box size to " + size,
-                                                duration: 1000
-                                              });
-                                              
-                                              // Go back to the original working implementation
-                                              handleMaterialUpdate(
-                                                order.id,
-                                                true,
-                                                'box',
-                                                size
-                                              );
-                                              
-                                              // Force a page reload after a short delay - this is the most reliable approach
-                                              setTimeout(() => {
-                                                console.log("Reloading page to ensure box updates are displayed");
-                                                window.location.reload();
-                                              }, 300);
-                                            }}
+                                            onClick={() => handleMaterialUpdate(
+                                              order.id,
+                                              true,
+                                              'box',
+                                              size
+                                            )}
                                           >
                                             {size}
                                           </button>
@@ -7458,13 +6584,16 @@ function getNoteTuningFromSpecifications(order: Order | OrderItem): string | und
                             >
                               {isBuilt ? (
                                 // If it's ready to be marked dry (5 days passed) and not yet manually marked
-                                (dryingStatus.isDryEnough && !isDryStatusPresent ? (<div 
-                                  className="bg-[#f06923] rounded-md flex items-center justify-center mx-auto w-7 h-7 cursor-pointer"
-                                  onClick={() => handleOrderStatusChange(order.id, col.id, true)}
-                                  title="Ready to mark as dry (5+ days since BUILD)"
-                                >
-                                  <Check className="h-5 w-5 text-white" />
-                                </div>) : // If it's still drying, show days remaining in orange pill
+                                dryingStatus.isDryEnough && !isDryStatusPresent ? (
+                                  <div 
+                                    className="bg-[#f06923] rounded-md flex items-center justify-center mx-auto w-7 h-7 cursor-pointer"
+                                    onClick={() => handleOrderStatusChange(order.id, col.id, true)}
+                                    title="Ready to mark as dry (5+ days since BUILD)"
+                                  >
+                                    <Check className="h-5 w-5 text-white" />
+                                  </div>
+                                ) : 
+                                // If it's still drying, show days remaining in orange pill
                                 (!dryingStatus.isDryEnough && dryingStatus.daysRemaining !== null && !isDryStatusPresent) ? (
                                   <div 
                                     className="bg-orange-100 border-2 border-[#f06923] rounded-md flex items-center justify-center mx-auto w-7 h-7 cursor-pointer text-xs font-bold text-[#d25618]"
@@ -7474,7 +6603,7 @@ function getNoteTuningFromSpecifications(order: Order | OrderItem): string | und
                                   </div>
                                 ) : (
                                   // If manually marked or already dried
-                                  (<Checkbox
+                                  <Checkbox
                                     checked={isStatusComplete(order, col.id)}
                                     onCheckedChange={(checked) => 
                                       handleOrderStatusChange(order.id, col.id, checked as boolean)
@@ -7482,15 +6611,15 @@ function getNoteTuningFromSpecifications(order: Order | OrderItem): string | und
                                     className="touch-target h-7 w-7 cursor-pointer !border-orange-500 !border-2"
                                     data-order-id={order.id}
                                     data-status={col.id}
-                                  />)
-                                ))
+                                  />
+                                )
                               ) : (
                                 // If not built yet, show disabled checkbox
-                                (<Checkbox
+                                <Checkbox
                                   checked={false}
                                   className="touch-target h-7 w-7 !border-orange-500 !border-2 cursor-not-allowed opacity-50"
                                   disabled={true}
-                                />)
+                                />
                               )}
                             </TableCell>
                           );
@@ -7589,120 +6718,187 @@ function getNoteTuningFromSpecifications(order: Order | OrderItem): string | und
                 //   ...collapsed view code removed...
                 // }
                 
-                // KRITISCHE FIX: Toon ALLEEN de items die aan alle huidige filters voldoen
-                // We gebruiken filteredOrderItems (alle reeds gefilterde items), niet alle items van deze order
-                // Dit zorgt ervoor dat een multi-item order alleen de items toont die aan de filters voldoen
-                // Get items for this order from the filtered items
-                let itemsInThisOrder = filteredOrderItems.filter(item => item.orderId === order.id);
+                // If not collapsed, show all items THAT MATCH THE FILTERS
+                // Eerst halen we de items voor deze order op
+                let itemsInThisOrder = itemsByOrder[order.id] || [];
                 
-                // Log voor debug
-                console.log(`MULTI-ITEM FIX: Order ${order.id} heeft ${itemsByOrder[order.id]?.length || 0} totale items, waarvan ${itemsInThisOrder.length} voldoen aan de filter criteria`);
+                // Als we alleen selectie tonen, filteren we verder op geselecteerde items
+                if (showOnlySelected) {
+                  console.log(`Filtering items for order ${order.id}, before: ${itemsInThisOrder.length} items`);
+                  itemsInThisOrder = itemsInThisOrder.filter(item => selectedItemIds.has(item.id));
+                  console.log(`Filtering items for order ${order.id}, after: ${itemsInThisOrder.length} items`);
+                }
                 
-                // KRITISCHE FIX: zorg ervoor dat we ALLEEN de items tonen die overeen komen met de huidige filters
+                // Bijhouden van serienummers die al getoond zijn om duplicaten te voorkomen bij filtering op tuning
+                const shownSerialNumbers = new Set<string>();
                 
-                // Dit is de echte fix voor het multi-item order probleem:
-                // 1. We gebruiken ALLEEN de items die eerst door alle filters gevalideerd zijn (filteredOrderItems)
-                // 2. Daarna filteren we die lijst verder om alleen items voor deze specifieke order te tonen
-                // 3. Zorg dat we GEEN dubbele serial numbers weergeven (dat was het probleem)
-                
-                // Debug log van items die aan de criteria voldoen
-                console.log(`Order ${order.id}: Toont nu ${itemsInThisOrder.length}/${itemsByOrder[order.id]?.length || 0} items die aan ALLE filters voldoen`);
-                
-                // Universal approach for all orders
-                // The prioritization logic for uniqueness:
-                // 1. First try shopifyLineItemId - most reliable source of truth from Shopify
-                // 2. Fall back to serialNumber if shopifyLineItemId is not available
-                // 3. Final fallback to item.id if neither is available (shouldn't happen)
-                
-                // Using a map for uniqueness allows us to prioritize the keys
-                const uniqueItemMap = new Map<string, OrderItem>();
-                
-                // Process all items and add them to our map with a carefully constructed unique key
-                itemsInThisOrder.forEach(item => {
-                    // Build a unique identifier from most reliable to least reliable source
-                    // Priority: shopifyLineItemId > serialNumber > item.id
-                    const uniqueKey = item.shopifyLineItemId 
-                        ? `shopify-${item.shopifyLineItemId}` 
-                        : (item.serialNumber 
-                            ? `serial-${item.serialNumber}` 
-                            : `id-${item.id}`);
+                // Dan filteren we ze op basis van de actieve filters
+                return itemsInThisOrder
+                  .filter(item => {
+                    // Als er filters voor tuning of frequency actief zijn, moet elk serienummer maar één keer voorkomen
+                    if ((tuningFilter !== null || frequencyFilter !== null) && item.serialNumber) {
+                      if (shownSerialNumbers.has(item.serialNumber)) {
+                        console.log(`Duplicate serial ${item.serialNumber} already displayed, skipping`);
+                        return false;
+                      }
+                      shownSerialNumbers.add(item.serialNumber);
+                    }
+                    
+                    // Als er geen actieve filters zijn, toon alle items
+                    if (typeFilter === null && colorFilters.length === 0 && tuningFilter === null && frequencyFilter === null) {
+                      return true;
+                    }
+                    
+                    // Check type filter
+                    if (typeFilter !== null) {
+                      const itemType = getTypeFromSpecifications(item);
+                      
+                      // Speciaal geval voor DOUBLE fluiten
+                      if (typeFilter === 'DOUBLE') {
+                        // Check specifications voor DOUBLE in type of model
+                        const specs = item.specifications as Record<string, any> || {};
+                        const isDOUBLEType = 
+                          (specs.type && specs.type.toUpperCase().includes('DOUBLE')) ||
+                          (specs.model && specs.model.toUpperCase().includes('DOUBLE'));
+                          
+                        if (isDOUBLEType) return true;
+                        
+                        // Check voor G# in Medium of Large (speciale regel voor DOUBLE fluiten)
+                        const isGSharp = (specs.note && specs.note.toUpperCase().includes('G#')) || 
+                                    (specs.tuning && specs.tuning.toUpperCase().includes('G#'));
+                                    
+                        const isLargerSize = (specs.size && (specs.size.toUpperCase().includes('MEDIUM') || 
+                                          specs.size.toUpperCase().includes('LARGE')));
+                                          
+                        if (isGSharp && isLargerSize) return true;
+                        
+                        // Niet een DOUBLE fluit volgens de criteria
+                        return false;
+                      }
+                      
+                      // Voor andere types, directe vergelijking
+                      if (!itemType || itemType.toUpperCase() !== String(typeFilter).toUpperCase()) {
+                        return false;
+                      }
+                    }
+                    
+                    // Check kleurfilters
+                    if (colorFilters.length > 0) {
+                      const itemColor = getColorFromSpecifications(item);
+                      if (!itemColor || !colorFilters.includes(itemColor)) {
+                        return false;
+                      }
+                    }
+                    
+                    // Check tuning filter
+                    if (tuningFilter !== null) {
+                      try {
+                        // DIRECTE DATABASE CHECK - eerst controleren of item een serienummer heeft in de database
+                        let matchesFilter = false;
+                        
+                        if (item && 'serialNumber' in item && item.serialNumber) {
+                          const serialNumber = item.serialNumber;
+                          
+                          try {
+                            // Gebruik veilige helper functie voor consistentie
+                            const dbSpecs = safeGetFromSerialNumberDatabase(serialNumber);
+                            if (dbSpecs && 'tuning' in dbSpecs && dbSpecs.tuning) {
+                              console.log(`FILTER CHECK: Serienummer ${serialNumber} in database heeft tuning ${dbSpecs.tuning}, filter zoekt ${tuningFilter}`);
+                              
+                              // Direct vergelijken met filter - met extra null checks
+                              if (dbSpecs.tuning === tuningFilter) {
+                                matchesFilter = true;
+                                console.log(`MATCH: Database tuning komt overeen met filter`);
+                              }
+                            }
+                          } catch (dbError) {
+                            console.error(`Error bij database lookup voor tuning filter: ${dbError}`);
+                            // Blijf doorgaan met normale methode
+                          }
+                        }
+                        
+                        // Als er geen directe match was in de database, probeer het via de normale methode
+                        if (!matchesFilter && item) {
+                          try {
+                            const itemTuning = getNoteTuningFromSpecifications(item);
+                            console.log(`FILTER CHECK: Item tuning op normale manier: ${itemTuning || 'niet gevonden'}, filter zoekt ${tuningFilter}`);
                             
-                    // Store in map - if duplicate keys, last one wins (shouldn't happen with shopifyLineItemId)
-                    uniqueItemMap.set(uniqueKey, item);
-                });
-                
-                // Convert map values back to array
-                let uniqueItems = Array.from(uniqueItemMap.values());
-                
-                // Sort items by their serial number suffixes properly (if there are multiple items)
-                if (uniqueItems.length > 1) {
-                  uniqueItems.sort((a, b) => {
-                    const aSerial = a.serialNumber || '';
-                    const bSerial = b.serialNumber || '';
-                    
-                    // Extract numeric suffix after the dash (e.g., "1594-10" -> "10", "1594-2" -> "2")
-                    const aSuffix = aSerial.split('-').pop() || '';
-                    const bSuffix = bSerial.split('-').pop() || '';
-                    
-                    // If both are numeric, compare as numbers
-                    if (/^\d+$/.test(aSuffix) && /^\d+$/.test(bSuffix)) {
-                      return parseInt(aSuffix, 10) - parseInt(bSuffix, 10);
+                            // Extra veiligheidscheck om te voorkomen dat we undefined variabelen vergelijken
+                            if (itemTuning === undefined) {
+                              console.log("Item tuning is undefined - kan niet vergelijken met filter");
+                              return false;
+                            }
+                            
+                            if (!itemTuning || itemTuning !== tuningFilter) {
+                              return false;
+                            }
+                          } catch (tuningError) {
+                            console.error(`Error bij bepalen van tuning voor filter: ${tuningError}`);
+                            return false;
+                          }
+                        }
+                      } catch (error) {
+                        console.error(`Onverwachte fout bij tuning filter: ${error}`);
+                        return false;
+                      }
                     }
                     
-                    // Otherwise, fall back to string comparison
-                    return aSuffix.localeCompare(bSuffix);
-                  });
-                }
-                
-                // Sort the items using natural sort 
-                // The naturalSort function is defined elsewhere in this file (around line 6777)
-                if (uniqueItems.length > 1) {
-                  uniqueItems = uniqueItems.sort((a, b) => {
-                    // Extract the suffix part from the serial numbers (e.g. "1594-10" -> "10", "1594-2" -> "2")
-                    const aSerial = a.serialNumber || '';
-                    const bSerial = b.serialNumber || '';
-                    
-                    // Skip if missing serial numbers
-                    if (!aSerial || !bSerial) return 0;
-                    
-                    // Use the natural sort helper defined elsewhere
-                    // Extract the numeric suffix after the dash
-                    const aSuffix = aSerial.split('-').pop() || '';
-                    const bSuffix = bSerial.split('-').pop() || '';
-                    
-                    // Convert to numbers for proper numeric sorting (if they are numbers)
-                    const aNum = /^\d+$/.test(aSuffix) ? parseInt(aSuffix, 10) : aSuffix;
-                    const bNum = /^\d+$/.test(bSuffix) ? parseInt(bSuffix, 10) : bSuffix;
-                    
-                    // Compare numerically if both are numbers, otherwise fall back to string comparison
-                    if (typeof aNum === 'number' && typeof bNum === 'number') {
-                      return aNum - bNum; // Numeric sort
+                    // Check frequency filter - met dezelfde robuuste foutafhandeling als tuning filter
+                    if (frequencyFilter !== null) {
+                      try {
+                        // DIRECTE DATABASE CHECK - eerst controleren of item een serienummer heeft in de database
+                        let matchesFilter = false;
+                        
+                        if (item && 'serialNumber' in item && item.serialNumber) {
+                          const serialNumber = item.serialNumber;
+                          
+                          try {
+                            // Gebruik veilige helper functie voor consistentie
+                            const dbSpecs = safeGetFromSerialNumberDatabase(serialNumber);
+                            if (dbSpecs && 'frequency' in dbSpecs && dbSpecs.frequency) {
+                              console.log(`ITEM FREQ CHECK: Serienummer ${serialNumber} in database heeft frequentie ${dbSpecs.frequency}, filter zoekt ${frequencyFilter}`);
+                              
+                              // Direct vergelijken met filter - met extra null checks
+                              if (dbSpecs.frequency === frequencyFilter) {
+                                matchesFilter = true;
+                                console.log(`ITEM FREQ MATCH: Database frequentie komt overeen met filter`);
+                              }
+                            }
+                          } catch (dbError) {
+                            console.error(`Error bij database lookup voor frequency filter: ${dbError}`);
+                            // Blijf doorgaan met normale methode
+                          }
+                        }
+                        
+                        // Als er geen directe match was in de database, probeer het via de normale methode
+                        if (!matchesFilter && item) {
+                          try {
+                            const itemFreq = getTuningFrequencyFromSpecifications(item);
+                            console.log(`ITEM FREQ CHECK: Item frequentie op normale manier: ${itemFreq || 'niet gevonden'}, filter zoekt ${frequencyFilter}`);
+                            
+                            // Extra veiligheidscheck om te voorkomen dat we undefined variabelen vergelijken
+                            if (itemFreq === undefined) {
+                              console.log("Item frequentie is undefined - kan niet vergelijken met filter");
+                              return false;
+                            }
+                            
+                            if (!itemFreq || itemFreq !== frequencyFilter) {
+                              return false;
+                            }
+                          } catch (freqError) {
+                            console.error(`Error bij bepalen van frequentie voor filter: ${freqError}`);
+                            return false;
+                          }
+                        }
+                      } catch (error) {
+                        console.error(`Onverwachte fout bij frequentie filter: ${error}`);
+                        return false;
+                      }
                     }
                     
-                    // Fall back to string comparison if not both numbers
-                    return String(aNum).localeCompare(String(bNum));
-                  });
-                }
-                
-                if (uniqueItems.length !== itemsInThisOrder.length) {
-                    console.log(`Order ${order.orderNumber}: Filtered from ${itemsInThisOrder.length} to ${uniqueItems.length} unique items`);
-                }
-                
-                if (uniqueItems.length !== itemsInThisOrder.length) {
-                  console.log(`Order ${order.orderNumber}: Gefilterd van ${itemsInThisOrder.length} naar ${uniqueItems.length} unieke items`);
-                }
-                
-                // Als geen items aan de criteria voldoen, toon de order niet
-                if (uniqueItems.length === 0) {
-                  return null;
-                }
-                
-                // Log unique items for debugging (for all orders)
-                if (process.env.NODE_ENV === 'development') {
-                  console.log(`After filtering: ${uniqueItems.length} unique items from ${itemsInThisOrder.length} filtered items for order ${order.orderNumber}`);
-                }
-                
-                return uniqueItems
+                    // Item voldoet aan alle actieve filters
+                    return true;
+                  })
                   .map((item, index) => (
                   <TableRow 
                     key={`${order.id}-${item.id}`}
@@ -7712,69 +6908,29 @@ function getNoteTuningFromSpecifications(order: Order | OrderItem): string | und
   border-b border-dotted
   order-row
   ${isItemSelected(item.id) ? 'selected-row' : ''}
-  ${uniqueItems.length > 1 ? 'multi-item-flat-row' : ''}
+  ${itemsInThisOrder.length > 1 ? 'multi-item-flat-row' : ''}
   order-item-${order.id}
-  ${uniqueItems.length > 1 ? 'border-l-4 border-l-gray-300' : ''}
-  ${index === 0 && uniqueItems.length > 1 ? 'border-t-2 border-t-gray-400' : ''}
-  ${index === uniqueItems.length - 1 && uniqueItems.length > 1 ? 'border-b-2 border-b-gray-400' : ''}
+  ${itemsInThisOrder.length > 1 ? 'border-l-4 border-l-gray-300' : ''}
+  ${index === 0 && itemsInThisOrder.length > 1 ? 'border-t-2 border-t-gray-400' : ''}
+  ${index === itemsInThisOrder.length - 1 && itemsInThisOrder.length > 1 ? 'border-b-2 border-b-gray-400' : ''}
 `}
                     style={{
-                      backgroundColor: getCellBackgroundColor(uniqueItems, order.id),
+                      backgroundColor: getCellBackgroundColor(itemsInThisOrder, order.id),
                       verticalAlign: 'middle'
                     }}
                   >
                         <TableCell 
-                          className={`font-bold sticky left-0 p-1 whitespace-nowrap z-20 align-middle cursor-pointer order-number-cell ${
-                            order.isUrgent === true
-                              ? '' 
-                              : (order.isReseller ? 'bg-[#59296e]' : 'bg-[#015a6c]')
-                          }`}
-                          style={{ 
-                            zIndex: 20,
-                            backgroundColor: order.isUrgent === true ? '#ff0000' : undefined,
-                            color: order.isUrgent === true ? '#ffffff' : undefined
-                          }}
+                          className={`font-bold sticky left-0 p-1 whitespace-nowrap z-20 ${order.isReseller ? 'bg-[#59296e]' : 'bg-[#015a6c]'} align-middle cursor-pointer order-number-cell`}
+                          style={{ zIndex: 20 }}
                           onClick={() => handleOrderClick(order)}
                         >
                           <div className="flex flex-col pt-1">
                             <div className="flex items-center">
-                              <span 
-                                className="hover:underline"
-                                style={{ 
-                                  color: order.isUrgent === true ? '#ff0000' : '#ffffff',
-                                  fontWeight: order.isUrgent === true ? '800' : 'bold'
-                                }}
-                              >
+                              <span className="hover:underline text-white">
                                 {showOrderNumbers ? (
-                                  <span 
-                                    style={{ 
-                                      color: order.isUrgent === true ? '#ff0000' : 'inherit',
-                                      fontWeight: order.isUrgent === true ? '800' : 'inherit'
-                                    }}
-                                  >
-                                    {(() => {
-                                      // Advanced logging only in development mode
-                                      if (process.env.NODE_ENV === 'development' && item.shopifyLineItemId) {
-                                        console.log(`Serial Debug: orderNumber=${order.orderNumber}, serialNumber=${item.serialNumber}, shopify_line_item_id=${item.shopifyLineItemId}`);
-                                      }
-                                      
-                                      // For items with serial numbers, drop the "SW-" prefix
-                                      if (item.serialNumber) {
-                                        // Remove the -1 suffix for single item orders
-                                        if (uniqueItems.length === 1 && item.serialNumber.endsWith('-1')) {
-                                          return item.serialNumber.replace(/^SW-/, '').replace(/-1$/, '');
-                                        }
-                                        return item.serialNumber.replace(/^SW-/, '');
-                                      }
-                                      
-                                      // Fallback to orderNumber-index if no serial number
-                                      // For single item orders, don't add the -1 suffix
-                                      if (uniqueItems.length === 1) {
-                                        return order.orderNumber?.replace('SW-', '');
-                                      }
-                                      return `${order.orderNumber?.replace('SW-', '')}-${index + 1}`;
-                                    })()}
-                                  </span>
+                                  itemsInThisOrder.length > 1 ? 
+                                    `${order.orderNumber?.replace('SW-', '')}-${index + 1}` : 
+                                    order.orderNumber?.replace('SW-', '')
                                 ) : ''}
                               </span>
                               
@@ -7782,25 +6938,25 @@ function getNoteTuningFromSpecifications(order: Order | OrderItem): string | und
                               {order.isReseller && (
                                 order.resellerNickname ? (
                                   <span className="ml-1 text-xs bg-gray-500 text-white px-1 py-0.5 rounded font-bold">
-                                    {order.resellerNickname} {uniqueItems.length > 1 ? uniqueItems.length : ''}
+                                    {order.resellerNickname} {itemsInThisOrder.length > 1 ? itemsInThisOrder.length : ''}
                                   </span>
                                 ) : (
-                                  <span className="ml-1 text-xs bg-gray-500 text-white px-1 rounded font-bold">{uniqueItems.length}</span>
+                                  <span className="ml-1 text-xs bg-gray-500 text-white px-1 rounded font-bold">{itemsInThisOrder.length}</span>
                                 )
                               )}
                               
-                              {/* Notes indicator with green dot - comes before joint box */}
+                              {/* Notes indicator with red dot - comes before joint box */}
                               {order.notes && order.notes.trim() !== '' && (
                                 <span 
-                                  className="ml-1.5 inline-block h-2.5 w-2.5 rounded-full border border-white bg-[#22c55d]" 
+                                  className="ml-1.5 inline-block h-2.5 w-2.5 rounded-full bg-red-600 border border-white" 
                                   title={`This order has customer notes: "${order.notes.substring(0, 30)}${order.notes.length > 30 ? '...' : ''}"`}
                                 ></span>
                               )}
                               
                               {/* Show total count for non-reseller multi-item orders */}
-                              {!order.isReseller && uniqueItems.length > 1 && (
+                              {!order.isReseller && itemsInThisOrder.length > 1 && (
                                 <span className="ml-1 text-xs bg-gray-500 text-white px-1 py-0.5 rounded font-bold">
-                                  {`${uniqueItems.length}`}
+                                  {`${itemsInThisOrder.length}`}
                                 </span>
                               )}
                             </div>
@@ -7812,7 +6968,7 @@ function getNoteTuningFromSpecifications(order: Order | OrderItem): string | und
                         <TableCell 
                           
                           className={`p-1 whitespace-nowrap text-center align-middle`}
-                          style={{ backgroundColor: getCellBackgroundColor(uniqueItems, order.id) }}
+                          style={{ backgroundColor: getCellBackgroundColor(itemsInThisOrder, order.id) }}
                         >
                           <div className="flex flex-col items-center">
                             <Checkbox
@@ -7828,7 +6984,7 @@ function getNoteTuningFromSpecifications(order: Order | OrderItem): string | und
                         <TableCell 
                           
                           className={`font-medium p-1 whitespace-nowrap text-center align-middle`}
-                          style={{ backgroundColor: getCellBackgroundColor(uniqueItems, order.id) }}
+                          style={{ backgroundColor: getCellBackgroundColor(itemsInThisOrder, order.id) }}
                         >
                           <div className="flex flex-col items-center">
                             {typeof getDaysSinceOrder(order.orderDate) === 'number' && (
@@ -7881,7 +7037,7 @@ function getNoteTuningFromSpecifications(order: Order | OrderItem): string | und
                             
                             if (instrumentType) {
                               return (
-                                <MoldNamePopover customerName={order.customerName} orderNumber={order.orderNumber} serialNumber={item.serialNumber} itemPosition={`${index+1}/${allOrderItems.filter(i => i.orderId === order.id).length}`} instrumentType={instrumentType} tuningNote={tuningNote || ''} frequency={freqValue} orderNotes={order.notes || ''} itemSpecifications={item.specifications || {}} calculatedColor={getWorksheetColorCode(item)}
+                                <MoldNamePopover customerName={order.customerName} orderNumber={order.orderNumber} serialNumber={item.serialNumber} itemPosition={`${index+1}/${allOrderItems.filter(i => i.orderId === order.id).length}`} instrumentType={instrumentType} tuningNote={tuningNote || ''} frequency={freqValue} orderNotes={order.notes || ''} itemSpecifications={item.specifications || {}}
                                 >
                                   <CombinedInstrumentTuningBadge
                                     instrumentType={instrumentType}
@@ -7923,23 +7079,19 @@ function getNoteTuningFromSpecifications(order: Order | OrderItem): string | und
                         backgroundColor: 'transparent',
                         width: '100%'
                       }}>
-                        {/* Color badge display with direct value capture */}
+                        {/* Use getColorFromSpecifications(item) directly instead of getColorFromSpecifications(order) */}
                         {(() => {
-                          const colorCode = getWorksheetColorCode(item);
+                          const itemColor = getColorFromSpecifications(item);
+                          const colorCode = itemColor === 'Smokefired Terra and Black' ? 'T' : (itemColor?.slice(0, 2) || '');
                           
-                          // Store the actual displayed value for popup consistency
-                          (item as any).__displayedColorCode = colorCode;
-                          
-                          // Extra debug for the storage
-                          if (item.serialNumber === '1559-2' || item.serialNumber === 'SW-1559-2' || 
-                              item.serialNumber === '1580-2' || item.serialNumber === 'SW-1580-2' ||
-                              item.serialNumber?.includes('1559-2') || item.serialNumber?.includes('1580-2')) {
-                            console.log("💾 BADGE STORAGE for", item.serialNumber, "storing:", colorCode);
-                          }
-                          
-                          // Debug all items with serial containing 1559 to see what we have
-                          if (item.serialNumber?.includes('1559')) {
-                            console.log("🔍 FOUND 1559 ITEM:", item.serialNumber, "color:", colorCode);
+                          // For our problematic SW-1580-2 with "Smokefired black with Terra and Copper Bubbles"
+                          if (item.serialNumber === 'SW-1580-2') {
+                            console.log("Special case for SW-1580-2, forcing color code C");
+                            return (
+                              <span className={`min-w-[60px] px-2 py-1 rounded font-medium text-center ${getColorClass('C')}`}>
+                                C
+                              </span>
+                            );
                           }
                           
                           // Voor CARDS items helemaal geen kleurenbadge tonen
@@ -8027,10 +7179,7 @@ function getNoteTuningFromSpecifications(order: Order | OrderItem): string | und
                             );
                           }
                           
-                          // Normale weergave voor andere items - fetch bag info
-                          // Use a direct call with materialUpdateCount as a key dependency
-                          // This ensures re-calculation whenever materialUpdateCount changes
-                          console.log(`Recomputing bag info after update count ${materialUpdateCount}`);
+                          // Normale weergave voor andere items
                           const bagInfo = getBagInfo(item) || getBagInfo(order);
                           
                           // Generate bag options based on instrument type
@@ -8057,20 +7206,13 @@ function getNoteTuningFromSpecifications(order: Order | OrderItem): string | und
                               {/* Clickable bag label that opens a dropdown */}
                               <Popover>
                                 <PopoverTrigger asChild>
-                                  <button 
-                                    className="w-full cursor-pointer"
-                                    key={`bag-btn-${order.id}-${item.id}-${materialUpdateCount}`} // Force re-render on materialUpdateCount change
-                                  >
+                                  <button className="w-full cursor-pointer">
                                     {bagInfo ? (
-                                      getTypeFromSpecifications(item)?.toUpperCase().includes('CARDS') ? (
-                                        <span className="text-xs text-gray-400">No bag needed</span>
-                                      ) : (
-                                        <span className={`bag-label bag-${bagInfo.size} bag-${bagInfo.type}`}>
-                                          <span className="font-bold text-white">
-                                            {`${bagInfo.type.toUpperCase()} ${bagInfo.size.toUpperCase()}`}
-                                          </span>
+                                      <span className={`bag-label bag-${bagInfo.size} bag-${bagInfo.type}`}>
+                                        <span className="font-bold text-white">
+                                          {`${bagInfo.type.toUpperCase()} ${bagInfo.size.toUpperCase()}`}
                                         </span>
-                                      )
+                                      </span>
                                     ) : (
                                       <span className="text-gray-500 hover:text-gray-800">Assign bag</span>
                                     )}
@@ -8092,16 +7234,12 @@ function getNoteTuningFromSpecifications(order: Order | OrderItem): string | und
                                                     ? 'bg-primary text-white'
                                                     : 'bg-white hover:bg-gray-100'
                                                 }`}
-                                                onClick={() => {
-                                                  // Just use the handleMaterialUpdate function directly
-                                                  // The function already updates the queryClient cache appropriately
-                                                  handleMaterialUpdate(
-                                                    item.id,
-                                                    false,
-                                                    'bag',
-                                                    { type: option.type, size }
-                                                  );
-                                                }}
+                                                onClick={() => handleMaterialUpdate(
+                                                  item.id,
+                                                  false,
+                                                  'bag',
+                                                  { type: option.type, size }
+                                                )}
                                               >
                                                 {size}
                                               </button>
@@ -8171,22 +7309,7 @@ function getNoteTuningFromSpecifications(order: Order | OrderItem): string | und
 
                           // If no box size from material settings, use the one from the order data
                           if (!boxSize) {
-                            // Always look directly at the specifications first (for immediate UI update)
-                            if (item.specifications && typeof item.specifications === 'object') {
-                              const specs = item.specifications as Record<string, any>;
-                              boxSize = specs.boxSize || specs['Box Size'] || specs['box size'];
-                            }
-                            
-                            // If still no box size, try the order's specifications
-                            if (!boxSize && order.specifications && typeof order.specifications === 'object') {
-                              const specs = order.specifications as Record<string, any>;
-                              boxSize = specs.boxSize || specs['Box Size'] || specs['box size'];
-                            }
-                            
-                            // If still no box size, fall back to the getter function
-                            if (!boxSize) {
-                              boxSize = getBoxSize(item) || getBoxSize(order);
-                            }
+                            boxSize = getBoxSize(item) || getBoxSize(order);
                           }
                           
                           // For styling the box size
@@ -8241,14 +7364,9 @@ function getNoteTuningFromSpecifications(order: Order | OrderItem): string | und
                             >
                               <Popover>
                                 <PopoverTrigger asChild>
-                                  <button className="w-full cursor-pointer"
-                                    key={`item-box-btn-${item.id}-${materialUpdateCount}`} // Force re-render on materialUpdateCount change
-                                  >
-                                    {/* Hidden span to force re-render with materialUpdateCount changes */}
-                                    <span className="hidden">{materialUpdateCount}</span>
-                                    {/* Back to the simpler approach */}
+                                  <button className="w-full cursor-pointer">
                                     {boxSize ? (
-                                      <span id={`box-item-${item.id}`} className={`box-label ${getBoxSizeClass(boxSize)}`}>
+                                      <span className={`box-label ${getBoxSizeClass(boxSize)}`}>
                                         <span className="font-bold text-white">
                                           {boxSize === "ENVELOPE" || boxSize === "E~NVELOPE" ? "ENVELOPE" : 
                                            boxSize.replace(/X/g, 'x')}
@@ -8265,32 +7383,18 @@ function getNoteTuningFromSpecifications(order: Order | OrderItem): string | und
                                     <div className="grid grid-cols-2 gap-1">
                                       {boxSizes.map(size => (
                                         <button
-                                          key={`${size}-${materialUpdateCount}`}
+                                          key={size}
                                           className={`text-xs px-2 py-1 rounded border ${
-                                            boxSize === size.replace(/X/g, 'x')
+                                            boxSize === size
                                               ? 'bg-primary text-white'
                                               : 'bg-white hover:bg-gray-100'
                                           }`}
-                                          onClick={() => {
-                                            // Show a notification
-                                            toast({
-                                              title: "Updating box size to " + size,
-                                              duration: 1000
-                                            });
-                                            
-                                            // Update the material in the database
-                                            handleMaterialUpdate(
-                                              item.id,
-                                              false,
-                                              'box',
-                                              size
-                                            );
-                                            
-                                            // Force a page reload after a short delay
-                                            setTimeout(() => {
-                                              window.location.reload();
-                                            }, 300);
-                                          }}
+                                          onClick={() => handleMaterialUpdate(
+                                            item.id,
+                                            false,
+                                            'box',
+                                            size
+                                          )}
                                         >
                                           {size === "ENVELOPE" || size === "E~NVELOPE" ? "ENVELOPE" : size.replace(/X/g, 'x')}
                                         </button>
@@ -8304,109 +7408,6 @@ function getNoteTuningFromSpecifications(order: Order | OrderItem): string | und
                         }
                         return (
                           <TableCell key={col.id} className="text-center p-1">—</TableCell>
-                        );
-                      }
-                      
-                      // For the boxWeight editable field - comes after the BOX column
-                      if (col.isEditable && col.id === 'boxWeight') {
-                        // Check if this is a CARDS item
-                        const instrumentType = getTypeFromSpecifications(item) || getTypeFromSpecifications(order);
-                        const isCardsItem = instrumentType?.toLowerCase().includes('card');
-                        
-                        // Voor CARDS items geen boxWeight tonen
-                        if (isCardsItem) {
-                          return (
-                            <TableCell 
-                              key={col.id} 
-                              className="text-center p-1"
-                              style={{ 
-                                backgroundColor: index % 2 === 0 ? '#F5F5F0' : '#F9F0E8',
-                                zIndex: 10
-                              }}
-                            >
-                              {/* Leeg veld voor CARDS items */}
-                            </TableCell>
-                          );
-                        }
-                        
-                        return (
-                          <TableCell 
-                            key={col.id} 
-                            className="text-center p-1"
-                            style={{ 
-                              backgroundColor: index % 2 === 0 ? '#F5F5F0' : '#F9F0E8',
-                              zIndex: 10,
-                              width: col.width ? `${col.width}px` : undefined,
-                              minWidth: col.width ? `${col.width}px` : undefined,
-                              maxWidth: col.width ? `${col.width}px` : undefined
-                            }}
-                          >
-                            <input
-                              type="text"
-                              className="w-12 text-center bg-transparent border border-gray-300 rounded p-1 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
-                              value={item.weight || ''}
-                              onChange={(e) => handleBoxWeightChange(item.id, e.target.value)}
-                              placeholder="g"
-                              aria-label="Box Weight"
-                              size={4}
-                            />
-                          </TableCell>
-                        );
-                      }
-                      
-                      // For the customerNotes editable field
-                      if (col.isEditable && col.id === 'customerNotes') {
-                        return (
-                          <TableCell 
-                            key={col.id} 
-                            className="text-left p-1"
-                            style={{ 
-                              backgroundColor: index % 2 === 0 ? '#F5F5F0' : '#F9F0E8',
-                              zIndex: 10,
-                              width: col.width ? `${col.width}px` : undefined,
-                              minWidth: col.width ? `${col.width}px` : undefined,
-                              maxWidth: col.width ? `${col.width}px` : undefined
-                            }}
-                          >
-                            <CustomerNotesInput 
-                              orderId={order.id}
-                              initialNotes={order.notes || ''}
-                              onSave={(notes) => {
-                                updateOrderNotesMutation.mutate({
-                                  orderId: order.id,
-                                  notes
-                                });
-                              }}
-                            />
-                          </TableCell>
-                        );
-                      }
-                      
-                      // For the workshopNotes editable field
-                      if (col.isEditable && col.id === 'workshopNotes') {
-                        return (
-                          <TableCell 
-                            key={col.id} 
-                            className="text-center p-1"
-                            style={{ 
-                              backgroundColor: index % 2 === 0 ? '#F5F5F0' : '#F9F0E8',
-                              zIndex: 10,
-                              width: col.width ? `${col.width}px` : undefined,
-                              minWidth: col.width ? `${col.width}px` : undefined,
-                              maxWidth: col.width ? `${col.width}px` : undefined
-                            }}
-                          >
-                            <NotesInput
-                              itemId={item.id}
-                              initialValue={item.workshopNotes || ''}
-                              onSave={(notes) => {
-                                updateItemNotesMutation.mutate({
-                                  itemId: item.id,
-                                  workshopNotes: notes
-                                });
-                              }}
-                            />
-                          </TableCell>
                         );
                       }
                       
@@ -8516,9 +7517,44 @@ function getNoteTuningFromSpecifications(order: Order | OrderItem): string | und
                         </TableCell>
                       );
                     })}
+                    <TableCell 
+                      className="p-1 min-w-[150px] max-w-[250px] notes-column"
+                      style={{ 
+                        zIndex: 10
+                      }}
+                    >
+                      <div className="flex flex-col p-0.5" style={{ 
+                        backgroundColor: itemsInThisOrder.length > 1 ? '#f5f5f3' : 'transparent',
+                        width: '100%'
+                      }}>
+                        <div className="relative group">
+                          {/* Abbreviated notes - always visible */}
+                          <div className="whitespace-nowrap overflow-hidden text-ellipsis max-w-[150px] text-base">
+                            {(typeof item.specifications === 'object' && 
+                             ((item.specifications as any)?.notes || 
+                              (item.specifications as any)?.note || 
+                              (item.specifications as any)?.comments || 
+                              (item.specifications as any)?.remark)) || 
+                              order.notes || ""}
+                          </div>
+                          
+                          {/* Full notes that show on hover - if notes exist and are longer than what fits */}
+                          {((typeof item.specifications === 'object' && 
+                             (item.specifications as any)?.notes && 
+                             (item.specifications as any)?.notes.length > 20) || 
+                             (order.notes && order.notes.length > 20)) && (
+                            <div className="absolute left-0 top-full mt-1 z-50 bg-white shadow-lg rounded p-2 min-w-[200px] max-w-[300px] whitespace-normal text-sm hidden group-hover:block">
+                              {(typeof item.specifications === 'object' && 
+                               (item.specifications as any)?.notes) || 
+                                order.notes || ""}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </TableCell>
                   </TableRow>
                 ));
-              }))
+              })
             )}
           </TableBody>
         </Table>
