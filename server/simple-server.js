@@ -176,7 +176,13 @@ app.get('/api/orders', async (req, res) => {
         console.log('📋 First transformed order structure:', JSON.stringify(transformedOrders[0], null, 2));
       }
       
-      res.json(transformedOrders);
+      // Add a debug flag to confirm we're using the updated code
+      const response = transformedOrders.map(order => ({
+        ...order,
+        _debug: 'camelCase-transformed'
+      }));
+      
+      res.json(response);
     } else {
       console.log('❌ No database connection');
       res.json([]);
