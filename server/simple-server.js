@@ -45,7 +45,7 @@ app.get('/api/orders', async (req, res) => {
     const client = await getDbClient();
     if (client) {
       console.log('🔍 Querying database for orders...');
-      const result = await client.query('SELECT * FROM orders ORDER BY "orderNumber" ASC');
+      const result = await client.query('SELECT * FROM orders ORDER BY order_number ASC');
       console.log(`✅ Found ${result.rows.length} orders in database`);
       res.json(result.rows);
     } else {
@@ -77,7 +77,8 @@ app.get('/api/settings', async (req, res) => {
   try {
     const client = await getDbClient();
     if (client) {
-      const result = await client.query('SELECT * FROM settings LIMIT 1');
+      // Try to get settings from a table that exists, or return default
+      const result = await client.query('SELECT * FROM workshop_settings LIMIT 1');
       res.json(result.rows[0] || { materialSettings: {} });
     } else {
       res.json({ materialSettings: {} });
@@ -92,7 +93,7 @@ app.get('/api/materials', async (req, res) => {
   try {
     const client = await getDbClient();
     if (client) {
-      const result = await client.query('SELECT * FROM materials WHERE "materialType" = $1', ['box']);
+      const result = await client.query('SELECT * FROM materials WHERE material_type = $1', ['box']);
       res.json(result.rows);
     } else {
       res.json([]);
@@ -107,7 +108,7 @@ app.get('/api/molds', async (req, res) => {
   try {
     const client = await getDbClient();
     if (client) {
-      const result = await client.query('SELECT * FROM mold_inventory WHERE "isActive" = true ORDER BY name ASC');
+      const result = await client.query('SELECT * FROM mold_inventory WHERE is_active = true ORDER BY name ASC');
       res.json(result.rows);
     } else {
       res.json([]);
@@ -122,7 +123,7 @@ app.get('/api/mold-mappings', async (req, res) => {
   try {
     const client = await getDbClient();
     if (client) {
-      const result = await client.query('SELECT * FROM mold_mappings WHERE "isActive" = true ORDER BY name ASC');
+      const result = await client.query('SELECT * FROM mold_mappings WHERE is_active = true ORDER BY name ASC');
       res.json(result.rows);
     } else {
       res.json([]);
@@ -137,7 +138,7 @@ app.get('/api/resellers', async (req, res) => {
   try {
     const client = await getDbClient();
     if (client) {
-      const result = await client.query('SELECT * FROM resellers WHERE "isActive" = true ORDER BY name ASC');
+      const result = await client.query('SELECT * FROM resellers WHERE is_active = true ORDER BY name ASC');
       res.json(result.rows);
     } else {
       res.json([]);
