@@ -66,7 +66,11 @@ app.get('/api/resellers', (req, res) => {
 // Authentication endpoints
 app.post('/api/auth/login', (req, res) => {
   console.log('🔐 Login requested');
+  console.log('📝 Request body:', req.body);
   const { username, password } = req.body;
+  console.log('👤 Username:', username);
+  console.log('🔑 Password received:', password);
+  console.log('🔑 Expected password: Johannes@@==2025');
   
   // Check for admin credentials
   if (username === 'admin' && password === 'Johannes@@==2025') {
@@ -78,6 +82,8 @@ app.post('/api/auth/login', (req, res) => {
     });
   } else {
     console.log('❌ Login failed - invalid credentials');
+    console.log('❌ Username match:', username === 'admin');
+    console.log('❌ Password match:', password === 'Johannes@@==2025');
     res.status(401).json({ 
       success: false, 
       message: 'Invalid username or password' 
