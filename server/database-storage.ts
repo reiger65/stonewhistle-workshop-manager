@@ -30,13 +30,25 @@ export class DatabaseStorage implements IStorage {
   public sessionStore: session.Store;
 
   constructor() {
-    // Initialize PostgreSQL session store
-    const PgStore = pgSessionStore(session);
-    this.sessionStore = new PgStore({
-      pool: pool,
-      tableName: 'session', // Default table name for connect-pg-simple
-      createTableIfMissing: true
-    });
+    // Initialize session store with fallback to memory store
+    try {
+      // Try to initialize PostgreSQL session store
+      const PgStore = pgSessionStore(session);
+      this.sessionStore = new PgStore({
+        pool: pool,
+        tableName: 'session', // Default table name for connect-pg-simple
+        createTableIfMissing: true
+      });
+      console.log("✅ Using PostgreSQL session store");
+    } catch (error) {
+      console.warn("⚠️  Failed to initialize PostgreSQL session store, falling back to memory store:", error);
+      // Fallback to memory store
+      const MemoryStore = createMemoryStore(session);
+      this.sessionStore = new MemoryStore({
+        checkPeriod: 86400000, // Prune expired entries every 24h
+      });
+      console.log("✅ Using memory session store as fallback");
+    }
   }
 
   // User Authentication
