@@ -66,7 +66,23 @@ app.get('/api/resellers', (req, res) => {
 // Authentication endpoints
 app.post('/api/auth/login', (req, res) => {
   console.log('🔐 Login requested');
-  res.json({ success: true, message: 'Login successful' });
+  const { username, password } = req.body;
+  
+  // Check for admin credentials
+  if (username === 'admin' && password === 'St0n3Fl%te$h0p@2025#!') {
+    console.log('✅ Admin login successful');
+    res.json({ 
+      success: true, 
+      message: 'Login successful',
+      user: { id: 1, username: 'admin', role: 'admin' }
+    });
+  } else {
+    console.log('❌ Login failed - invalid credentials');
+    res.status(401).json({ 
+      success: false, 
+      message: 'Invalid username or password' 
+    });
+  }
 });
 
 app.post('/api/auth/logout', (req, res) => {
