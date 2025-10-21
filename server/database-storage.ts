@@ -30,24 +30,57 @@ export class DatabaseStorage implements IStorage {
   public sessionStore: session.Store;
 
   constructor() {
-    // Initialize session store with fallback to memory store
+    // Initialize with memory store first (safe fallback)
+    const MemoryStore = createMemoryStore(session);
+    this.sessionStore = new MemoryStore({
+      checkPeriod: 86400000, // Prune expired entries every 24h
+    });
+    console.log("✅ Using memory session store (safe fallback)");
+    
+    // Try to upgrade to PostgreSQL session store asynchronously
+    this.initializePostgreSQLSessionStore();
+  }
+
+  private async initializePostgreSQLSessionStore() {
     try {
+      // Test database connection first
+      const isConnected = await this.testDatabaseConnection();
+      if (!isConnected) {
+        console.warn("⚠️  Database not available, keeping memory session store");
+        return;
+      }
+
       // Try to initialize PostgreSQL session store
       const PgStore = pgSessionStore(session);
-      this.sessionStore = new PgStore({
+      const pgStore = new PgStore({
         pool: pool,
         tableName: 'session', // Default table name for connect-pg-simple
         createTableIfMissing: true
       });
-      console.log("✅ Using PostgreSQL session store");
-    } catch (error) {
-      console.warn("⚠️  Failed to initialize PostgreSQL session store, falling back to memory store:", error);
-      // Fallback to memory store
-      const MemoryStore = createMemoryStore(session);
-      this.sessionStore = new MemoryStore({
-        checkPeriod: 86400000, // Prune expired entries every 24h
+      
+      // Test the PostgreSQL store
+      await new Promise((resolve, reject) => {
+        pgStore.get('test', (err) => {
+          if (err) reject(err);
+          else resolve(true);
+        });
       });
-      console.log("✅ Using memory session store as fallback");
+      
+      // If successful, replace the memory store
+      this.sessionStore = pgStore;
+      console.log("✅ Upgraded to PostgreSQL session store");
+    } catch (error) {
+      console.warn("⚠️  Failed to initialize PostgreSQL session store, keeping memory store:", error.message);
+    }
+  }
+
+  private async testDatabaseConnection(): Promise<boolean> {
+    try {
+      const result = await pool.query('SELECT 1 as connected');
+      return !!result.rows[0]?.connected;
+    } catch (error) {
+      console.warn("⚠️  Database connection test failed:", error.message);
+      return false;
     }
   }
 

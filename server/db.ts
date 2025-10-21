@@ -49,16 +49,16 @@ export async function checkDatabaseConnection() {
   }
 }
 
-// Test database connection on startup
-(async () => {
+// Test database connection on startup (non-blocking)
+setTimeout(async () => {
   try {
     const isConnected = await checkDatabaseConnection();
     if (isConnected) {
       console.log("🚀 Database ready for connections");
     } else {
-      console.error("💥 Database connection failed - some features may not work");
+      console.warn("⚠️  Database connection failed - some features may not work");
     }
   } catch (error) {
-    console.error("💥 Database startup check failed:", error);
+    console.warn("⚠️  Database startup check failed:", error.message);
   }
-})();
+}, 1000); // Wait 1 second before testing connection
