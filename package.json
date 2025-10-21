@@ -9,7 +9,7 @@
     "client": "vite",
     "build": "npm run build:client && npm run build:server",
     "build:client": "vite build",
-    "build:server": "tsc server/*.ts --outDir dist/server --target es2020 --module commonjs --esModuleInterop --skipLibCheck --declaration false",
+    "build:server": "tsc --project tsconfig.server.json",
     "start": "node dist/server/index.js",
     "deploy": "npm run build && npm start"
   },
