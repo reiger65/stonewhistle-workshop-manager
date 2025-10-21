@@ -76,6 +76,20 @@ export class DatabaseStorage implements IStorage {
 
   private async testDatabaseConnection(): Promise<boolean> {
     try {
+      // Check if DATABASE_URL is set and not pointing to localhost
+      if (!process.env.DATABASE_URL) {
+        console.warn("⚠️  DATABASE_URL not set");
+        return false;
+      }
+      
+      // Check if DATABASE_URL points to localhost (not suitable for Railway)
+      if (process.env.DATABASE_URL.includes('localhost') || 
+          process.env.DATABASE_URL.includes('127.0.0.1') ||
+          process.env.DATABASE_URL.includes('::1')) {
+        console.warn("⚠️  DATABASE_URL points to localhost, not suitable for Railway");
+        return false;
+      }
+      
       const result = await pool.query('SELECT 1 as connected');
       return !!result.rows[0]?.connected;
     } catch (error) {
@@ -86,13 +100,23 @@ export class DatabaseStorage implements IStorage {
 
   // User Authentication
   async getUser(id: number): Promise<User | undefined> {
-    const [user] = await db.select().from(users).where(eq(users.id, id));
-    return user;
+    try {
+      const [user] = await db.select().from(users).where(eq(users.id, id));
+      return user;
+    } catch (error) {
+      console.warn("⚠️  Database not available for getUser, returning undefined");
+      return undefined;
+    }
   }
 
   async getUserByUsername(username: string): Promise<User | undefined> {
-    const [user] = await db.select().from(users).where(eq(users.username, username));
-    return user;
+    try {
+      const [user] = await db.select().from(users).where(eq(users.username, username));
+      return user;
+    } catch (error) {
+      console.warn("⚠️  Database not available for getUserByUsername, returning undefined");
+      return undefined;
+    }
   }
 
   async createUser(userData: InsertUser): Promise<User> {
