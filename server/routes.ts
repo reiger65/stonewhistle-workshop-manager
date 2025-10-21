@@ -3877,8 +3877,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Initialize WebSocket server for system status updates
-  // TEMPORARILY DISABLED - WebSocket causing binding issues
-  // initStatusWebsocket(httpServer);
+  initStatusWebsocket(httpServer);
   
   return httpServer;
 }
