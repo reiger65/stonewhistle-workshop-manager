@@ -335,10 +335,24 @@ app.patch('/api/order-items/:id/status', async (req, res) => {
 
     console.log(`Updating item ${itemId} status ${status} to ${checked ? 'checked' : 'unchecked'}`);
 
-    // Simple status update - just log for now since we don't have the full schema
-    console.log('Status update received:', { itemId, status, checked });
+    // Update the item status in the database
+    if (checked) {
+      // When checkbox is checked, update the status
+      await client.query(
+        'UPDATE order_items SET status = $1 WHERE id = $2',
+        [status, itemId]
+      );
+      console.log(`✅ Updated item ${itemId} status to ${status}`);
+    } else {
+      // When checkbox is unchecked, set status back to ordered
+      await client.query(
+        'UPDATE order_items SET status = $1 WHERE id = $2',
+        ['ordered', itemId]
+      );
+      console.log(`✅ Reset item ${itemId} status to ordered`);
+    }
     
-    res.json({ success: true, message: 'Status updated' });
+    res.json({ success: true, message: 'Status updated successfully' });
   } catch (error) {
     console.error('Error updating item status:', error);
     res.status(500).json({ message: 'Failed to update status' });
@@ -358,10 +372,24 @@ app.patch('/api/orders/:id/status', async (req, res) => {
 
     console.log(`Updating order ${orderId} status ${status} to ${checked ? 'checked' : 'unchecked'}`);
 
-    // Simple status update - just log for now since we don't have the full schema
-    console.log('Order status update received:', { orderId, status, checked });
+    // Update the order status in the database
+    if (checked) {
+      // When checkbox is checked, update the status
+      await client.query(
+        'UPDATE orders SET status = $1 WHERE id = $2',
+        [status, orderId]
+      );
+      console.log(`✅ Updated order ${orderId} status to ${status}`);
+    } else {
+      // When checkbox is unchecked, set status back to ordered
+      await client.query(
+        'UPDATE orders SET status = $1 WHERE id = $2',
+        ['ordered', orderId]
+      );
+      console.log(`✅ Reset order ${orderId} status to ordered`);
+    }
     
-    res.json({ success: true, message: 'Order status updated' });
+    res.json({ success: true, message: 'Order status updated successfully' });
   } catch (error) {
     console.error('Error updating order status:', error);
     res.status(500).json({ message: 'Failed to update order status' });
