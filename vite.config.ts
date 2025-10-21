@@ -9,11 +9,11 @@ export default defineConfig({
   server: {
     proxy: {
       '/api': {
-        target: 'https://stonewhistle-workshop-manager.up.railway.app',
+        target: 'http://localhost:3000',
         changeOrigin: true,
       },
       '/ws': {
-        target: 'https://stonewhistle-workshop-manager.up.railway.app',
+        target: 'http://localhost:3000',
         ws: true,
         changeOrigin: true,
       },

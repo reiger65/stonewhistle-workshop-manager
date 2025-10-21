@@ -5,11 +5,11 @@ import * as schema from "@shared/schema";
 
 neonConfig.webSocketConstructor = ws;
 
-// Use DATABASE_URL from environment (Railway will provide this)
-const databaseUrl = process.env.DATABASE_URL;
+// For local development, use a fallback DATABASE_URL if not set
+const databaseUrl = process.env.DATABASE_URL || 'postgresql://postgres:password@localhost:5432/stonewhistle';
 
-if (!databaseUrl) {
-  throw new Error("DATABASE_URL must be set in production");
+if (!process.env.DATABASE_URL) {
+  console.warn("⚠️  DATABASE_URL not set, using fallback for local development");
 }
 
 export const pool = new Pool({ connectionString: databaseUrl });
