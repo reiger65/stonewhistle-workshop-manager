@@ -141,10 +141,13 @@ app.get('/api/resellers', async (req, res) => {
 
 // Authentication
 app.post('/api/login', (req, res) => {
+  console.log('🔐 Login attempt:', req.body);
   const { username, password } = req.body;
   if (username === 'admin' && password === 'Johannes@@==2025') {
-    res.json({ success: true, message: 'Login successful' });
+    console.log('✅ Login successful');
+    res.json({ success: true, message: 'Login successful', user: { id: 1, username: 'admin' } });
   } else {
+    console.log('❌ Login failed');
     res.status(401).json({ success: false, message: 'Invalid credentials' });
   }
 });
