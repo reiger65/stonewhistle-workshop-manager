@@ -18,12 +18,17 @@ let dbClient = null;
 async function getDbClient() {
   if (!dbClient && process.env.DATABASE_URL) {
     try {
+      console.log('🔌 Attempting database connection...');
+      console.log('🔗 DATABASE_URL:', process.env.DATABASE_URL ? 'SET' : 'NOT SET');
       dbClient = new Client({ connectionString: process.env.DATABASE_URL });
       await dbClient.connect();
-      console.log('✅ Database connected');
+      console.log('✅ Database connected successfully');
     } catch (error) {
       console.error('❌ Database connection failed:', error.message);
+      console.error('❌ Full error:', error);
     }
+  } else if (!process.env.DATABASE_URL) {
+    console.log('❌ DATABASE_URL environment variable not set');
   }
   return dbClient;
 }
@@ -35,16 +40,20 @@ app.get('/api/health', (req, res) => {
 
 // API endpoints
 app.get('/api/orders', async (req, res) => {
+  console.log('📋 Orders API requested');
   try {
     const client = await getDbClient();
     if (client) {
+      console.log('🔍 Querying database for orders...');
       const result = await client.query('SELECT * FROM orders ORDER BY "orderNumber" ASC');
+      console.log(`✅ Found ${result.rows.length} orders in database`);
       res.json(result.rows);
     } else {
+      console.log('❌ No database connection');
       res.json([]);
     }
   } catch (error) {
-    console.error('Error fetching orders:', error.message);
+    console.error('❌ Error fetching orders:', error.message);
     res.json([]);
   }
 });
