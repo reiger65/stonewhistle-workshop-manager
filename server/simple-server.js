@@ -38,6 +38,46 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'healthy', timestamp: new Date().toISOString() });
 });
 
+// Debug endpoint to check database tables
+app.get('/api/debug', async (req, res) => {
+  try {
+    const client = await getDbClient();
+    if (client) {
+      // List all tables
+      const tablesResult = await client.query(`
+        SELECT table_name 
+        FROM information_schema.tables 
+        WHERE table_schema = 'public'
+        ORDER BY table_name
+      `);
+      
+      // Check if orders table exists and get its structure
+      let ordersStructure = null;
+      try {
+        const structureResult = await client.query(`
+          SELECT column_name, data_type 
+          FROM information_schema.columns 
+          WHERE table_name = 'orders'
+          ORDER BY ordinal_position
+        `);
+        ordersStructure = structureResult.rows;
+      } catch (err) {
+        ordersStructure = `Error: ${err.message}`;
+      }
+      
+      res.json({
+        tables: tablesResult.rows.map(row => row.table_name),
+        ordersStructure: ordersStructure,
+        timestamp: new Date().toISOString()
+      });
+    } else {
+      res.json({ error: 'No database connection' });
+    }
+  } catch (error) {
+    res.json({ error: error.message });
+  }
+});
+
 // API endpoints
 app.get('/api/orders', async (req, res) => {
   console.log('📋 Orders API requested');
