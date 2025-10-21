@@ -818,20 +818,26 @@ export async function syncShopifyOrders(period?: string, forceUpdate: boolean = 
         const customerEmail = shopifyOrder.customer?.email || '';
         
         if (customerEmail && (!existingOrderById.isReseller || !existingOrderById.resellerNickname)) {
-          // Gebruik de slimme reseller detectie functie
-          const resellerDetection = await storage.detectResellerFromEmail(customerEmail);
-          
-          if (resellerDetection.isReseller) {
-            console.log(`🔄 Reseller detectie voor bestaande order ${existingOrderById.orderNumber}: e-mail ${customerEmail} matcht met reseller ${resellerDetection.resellerNickname}`);
+          try {
+            // Gebruik de slimme reseller detectie functie
+            const resellerDetection = await storage.detectResellerFromEmail(customerEmail);
             
-            // Update de order met de juiste reseller gegevens
-            await storage.updateOrder(existingOrderById.id, {
-              isReseller: true,
-              resellerNickname: resellerDetection.resellerNickname,
-              orderType: 'reseller'
-            });
-            
-            console.log(`✅ Order ${existingOrderById.orderNumber} bijgewerkt met reseller nickname: ${resellerDetection.resellerNickname}`);
+            // Check if resellerDetection is valid and has the expected properties
+            if (resellerDetection && typeof resellerDetection === 'object' && resellerDetection.isReseller) {
+              console.log(`🔄 Reseller detectie voor bestaande order ${existingOrderById.orderNumber}: e-mail ${customerEmail} matcht met reseller ${resellerDetection.resellerNickname}`);
+              
+              // Update de order met de juiste reseller gegevens
+              await storage.updateOrder(existingOrderById.id, {
+                isReseller: true,
+                resellerNickname: resellerDetection.resellerNickname,
+                orderType: 'reseller'
+              });
+              
+              console.log(`✅ Order ${existingOrderById.orderNumber} bijgewerkt met reseller nickname: ${resellerDetection.resellerNickname}`);
+            }
+          } catch (error) {
+            console.warn(`⚠️  Reseller detection failed for existing order ${existingOrderById.orderNumber} email ${customerEmail}:`, error.message);
+            // Continue without reseller detection if it fails
           }
         }
         
