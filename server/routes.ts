@@ -195,6 +195,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ error: "Kan systeemstatus niet ophalen" });
     }
   });
+
+  // Health check endpoint for Railway
+  app.get("/api/health", (req, res) => {
+    res.status(200).json({ 
+      status: "healthy", 
+      timestamp: new Date().toISOString(),
+      uptime: process.uptime()
+    });
+  });
   
   // SINGLE ENDPOINT for not-started items that works for both the worksheet and NextInstrumentBanner component
   app.get("/api/not-started-items", async (req, res) => {
