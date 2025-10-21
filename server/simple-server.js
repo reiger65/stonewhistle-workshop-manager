@@ -134,12 +134,49 @@ app.get('/api/orders', async (req, res) => {
       const result = await client.query('SELECT * FROM orders ORDER BY order_number ASC');
       console.log(`✅ Found ${result.rows.length} orders in database`);
       
-      // Log first order to see the structure
-      if (result.rows.length > 0) {
-        console.log('📋 First order structure:', JSON.stringify(result.rows[0], null, 2));
+      // Transform snake_case to camelCase for frontend compatibility
+      const transformedOrders = result.rows.map(order => ({
+        id: order.id,
+        orderNumber: order.order_number,
+        shopifyOrderId: order.shopify_order_id,
+        customerName: order.customer_name,
+        customerEmail: order.customer_email,
+        customerPhone: order.customer_phone,
+        customerAddress: order.customer_address,
+        customerCity: order.customer_city,
+        customerState: order.customer_state,
+        customerZip: order.customer_zip,
+        customerCountry: order.customer_country,
+        orderType: order.order_type,
+        isReseller: order.is_reseller,
+        resellerNickname: order.reseller_nickname,
+        status: order.status,
+        orderDate: order.order_date,
+        deadline: order.deadline,
+        notes: order.notes,
+        progress: order.progress,
+        specifications: order.specifications,
+        statusChangeDates: order.status_change_dates,
+        buildDate: order.build_date,
+        archived: order.archived,
+        trackingNumber: order.tracking_number,
+        trackingCompany: order.tracking_company,
+        trackingUrl: order.tracking_url,
+        shippedDate: order.shipped_date,
+        estimatedDeliveryDate: order.estimated_delivery_date,
+        deliveryStatus: order.delivery_status,
+        deliveredDate: order.delivered_date,
+        createdAt: order.created_at,
+        updatedAt: order.updated_at,
+        isUrgent: order.is_urgent
+      }));
+      
+      // Log first transformed order to see the structure
+      if (transformedOrders.length > 0) {
+        console.log('📋 First transformed order structure:', JSON.stringify(transformedOrders[0], null, 2));
       }
       
-      res.json(result.rows);
+      res.json(transformedOrders);
     } else {
       console.log('❌ No database connection');
       res.json([]);
@@ -155,7 +192,27 @@ app.get('/api/order-items', async (req, res) => {
     const client = await getDbClient();
     if (client) {
       const result = await client.query('SELECT * FROM order_items ORDER BY id ASC');
-      res.json(result.rows);
+      
+      // Transform snake_case to camelCase for frontend compatibility
+      const transformedItems = result.rows.map(item => ({
+        id: item.id,
+        orderId: item.order_id,
+        serialNumber: item.serial_number,
+        status: item.status,
+        itemName: item.item_name,
+        orderNumber: item.order_number,
+        archived: item.archived,
+        isArchived: item.is_archived,
+        checkboxes: item.checkboxes,
+        statusChangeDates: item.status_change_dates,
+        itemType: item.item_type,
+        tuning: item.tuning,
+        specifications: item.specifications,
+        shopifyLineItemId: item.shopify_line_item_id,
+        isDeleted: item.is_deleted
+      }));
+      
+      res.json(transformedItems);
     } else {
       res.json([]);
     }
