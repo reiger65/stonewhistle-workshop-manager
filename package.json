@@ -7,7 +7,7 @@
     "dev": "concurrently \"npm run server\" \"npm run client\"",
     "server": "tsx server/index.ts",
     "client": "vite",
-    "build": "npm run build:client && npm run build:server",
+    "build": "npm run build:client",
     "build:client": "vite build",
     "build:server": "tsc server/*.ts --outDir dist/server --target es2020 --module commonjs --esModuleInterop --skipLibCheck --declaration false",
     "start": "node dist/server/index.js",
