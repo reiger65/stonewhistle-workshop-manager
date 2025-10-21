@@ -22,7 +22,7 @@ import fs from 'fs';
 import path from 'path';
 import { eq, sql } from 'drizzle-orm';
 import { checkSerialNumberInDatabase, getSpecificationsFromDatabase, SERIAL_NUMBER_DATABASE, SHOPIFY_LINE_ITEM_TO_SERIAL_NUMBER, getSerialNumberByShopifyLineItem } from '../shared/serial-number-database';
-import { db } from './db';
+import { db, checkDatabaseConnection } from './db';
 import backupRoutes from './backup-routes.js';
 import backupsManagementRoutes from './routes/backups';
 import databaseManagerRoutes from './routes/database-manager.js';
@@ -197,12 +197,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Health check endpoint for Railway
-  app.get("/api/health", (req, res) => {
-    res.status(200).json({ 
-      status: "healthy", 
-      timestamp: new Date().toISOString(),
-      uptime: process.uptime()
-    });
+  app.get("/api/health", async (req, res) => {
+    try {
+      // Test database connection
+      const dbHealthy = await checkDatabaseConnection();
+      
+      res.status(200).json({ 
+        status: "healthy", 
+        timestamp: new Date().toISOString(),
+        uptime: process.uptime(),
+        database: dbHealthy ? "connected" : "disconnected"
+      });
+    } catch (error) {
+      console.error("Health check failed:", error);
+      res.status(500).json({ 
+        status: "unhealthy", 
+        timestamp: new Date().toISOString(),
+        error: error.message
+      });
+    }
   });
   
   // SINGLE ENDPOINT for not-started items that works for both the worksheet and NextInstrumentBanner component
