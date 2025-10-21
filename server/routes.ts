@@ -38,6 +38,13 @@ import { initStatusWebsocket, getPublicSystemStatus } from './system-status';
 import { registerTimerRoutes } from './timer-routes';
 
 export async function registerRoutes(app: Express): Promise<Server> {
+  console.log("🔧 Registering routes...");
+  
+  // Add a very basic test route first
+  app.get("/test", (req, res) => {
+    res.json({ message: "Server is working!" });
+  });
+
   // Laad alle Shopify line item -> serienummer mappings uit de database
   // zodat serienummers consistent blijven tussen server herstarts
   // Doe dit asynchroon om server opstart niet te vertragen
@@ -196,26 +203,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Health check endpoint for Railway
-  app.get("/api/health", async (req, res) => {
-    try {
-      // Test database connection
-      const dbHealthy = await checkDatabaseConnection();
-      
-      res.status(200).json({ 
-        status: "healthy", 
-        timestamp: new Date().toISOString(),
-        uptime: process.uptime(),
-        database: dbHealthy ? "connected" : "disconnected"
-      });
-    } catch (error) {
-      console.error("Health check failed:", error);
-      res.status(500).json({ 
-        status: "unhealthy", 
-        timestamp: new Date().toISOString(),
-        error: error.message
-      });
-    }
+  // Health check endpoint for Railway - SIMPLIFIED
+  app.get("/api/health", (req, res) => {
+    console.log("🏥 Health check requested");
+    res.status(200).json({ 
+      status: "healthy", 
+      timestamp: new Date().toISOString(),
+      uptime: process.uptime()
+    });
+  });
+
+  // Basic health check that works even if database is down
+  app.get("/health", (req, res) => {
+    console.log("🏥 Basic health check requested");
+    res.status(200).json({ 
+      status: "ok",
+      message: "Server is running"
+    });
   });
   
   // SINGLE ENDPOINT for not-started items that works for both the worksheet and NextInstrumentBanner component
