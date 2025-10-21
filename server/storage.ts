@@ -332,6 +332,50 @@ export class MemStorage implements IStorage {
     );
   }
 
+  // Add missing methods for HybridStorage compatibility
+  async getAllOrderItems(includeArchived?: boolean): Promise<OrderItem[]> {
+    return Array.from(this.orderItems.values());
+  }
+
+  async getAllOrderItemsByOrderId(orderId: number, includeArchived?: boolean): Promise<OrderItem[]> {
+    return Array.from(this.orderItems.values()).filter(
+      (item) => item.orderId === orderId
+    );
+  }
+
+  async deleteOrderItem(id: number): Promise<boolean> {
+    return this.orderItems.delete(id);
+  }
+
+  async getOrdersSince(date: Date): Promise<Order[]> {
+    return Array.from(this.orders.values()).filter(
+      (order) => order.orderDate >= date
+    );
+  }
+
+  async getOrdersWithoutTimeLimit(): Promise<Order[]> {
+    return Array.from(this.orders.values());
+  }
+
+  // Add more missing methods for HybridStorage compatibility
+  async getResellerByEmail(email: string): Promise<any> {
+    return undefined; // Not implemented in memory storage
+  }
+
+  async detectResellerFromEmail(email: string): Promise<any> {
+    return undefined; // Not implemented in memory storage
+  }
+
+  async archiveOrderItem(id: number): Promise<boolean> {
+    // In memory storage, we don't have archiving, so just return true
+    return true;
+  }
+
+  async unarchiveOrderItem(id: number): Promise<boolean> {
+    // In memory storage, we don't have archiving, so just return true
+    return true;
+  }
+
   async getOrderItemById(id: number): Promise<OrderItem | undefined> {
     return this.orderItems.get(id);
   }
