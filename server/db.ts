@@ -35,17 +35,27 @@ console.log(`🔗 Connecting to database: ${databaseUrl.replace(/:[^:]*@/, ':***
 // Create pool with error handling and Railway-optimized settings
 let pool: InstanceType<typeof Pool>;
 try {
-  pool = new Pool({ 
+  // Railway-specific connection configuration
+  const poolConfig: any = {
     connectionString: databaseUrl,
     // Railway-optimized connection settings
-    max: 10, // Maximum number of clients in the pool
-    idleTimeoutMillis: 30000, // Close idle clients after 30 seconds
-    connectionTimeoutMillis: 10000, // Return error after 10 seconds if connection could not be established
-    statement_timeout: 30000, // Cancel query after 30 seconds
-    query_timeout: 30000, // Cancel query after 30 seconds
+    max: 5, // Reduced pool size for Railway
+    idleTimeoutMillis: 20000, // Close idle clients after 20 seconds
+    connectionTimeoutMillis: 20000, // Increased timeout for Railway
+    statement_timeout: 60000, // Increased query timeout
+    query_timeout: 60000, // Increased query timeout
     // SSL settings for Railway
     ssl: process.env.RAILWAY_ENVIRONMENT ? { rejectUnauthorized: false } : false
-  });
+  };
+
+  // Add Railway-specific connection parameters
+  if (process.env.RAILWAY_ENVIRONMENT) {
+    poolConfig.keepAlive = true;
+    poolConfig.keepAliveInitialDelayMillis = 10000;
+    poolConfig.application_name = 'stonewhistle-workshop-manager';
+  }
+
+  pool = new Pool(poolConfig);
 } catch (error) {
   console.error("❌ Failed to create database pool:", error);
   throw new Error(`Database connection failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -57,9 +67,10 @@ export const db = drizzle(pool, { schema });
 // Export a function to check database connection
 export async function checkDatabaseConnection() {
   try {
-    // Use a timeout for the connection test
+    // Use a longer timeout for Railway
+    const timeoutMs = process.env.RAILWAY_ENVIRONMENT ? 30000 : 15000;
     const timeoutPromise = new Promise((_, reject) => {
-      setTimeout(() => reject(new Error('Connection timeout')), 15000);
+      setTimeout(() => reject(new Error('Connection timeout')), timeoutMs);
     });
     
     const queryPromise = pool.query('SELECT 1 as connected');
@@ -84,8 +95,8 @@ setTimeout(async () => {
       console.warn("⚠️  Database connection failed - some features may not work");
       if (process.env.RAILWAY_ENVIRONMENT) {
         console.warn("⚠️  Railway environment detected - database may be starting up");
-        console.warn("⚠️  Retrying connection in 10 seconds...");
-        // Retry once more for Railway
+        console.warn("⚠️  Retrying connection in 15 seconds...");
+        // Retry multiple times for Railway
         setTimeout(async () => {
           try {
             const retryConnected = await checkDatabaseConnection();
@@ -93,11 +104,25 @@ setTimeout(async () => {
               console.log("✅ Database connection successful on retry");
             } else {
               console.warn("⚠️  Database still not available after retry");
+              console.warn("⚠️  Final retry in 30 seconds...");
+              // Final retry for Railway
+              setTimeout(async () => {
+                try {
+                  const finalRetryConnected = await checkDatabaseConnection();
+                  if (finalRetryConnected) {
+                    console.log("✅ Database connection successful on final retry");
+                  } else {
+                    console.warn("⚠️  Database connection failed after all retries - using memory storage");
+                  }
+                } catch (finalRetryError) {
+                  console.warn("⚠️  Final database retry failed:", finalRetryError instanceof Error ? finalRetryError.message : String(finalRetryError));
+                }
+              }, 30000);
             }
           } catch (retryError) {
             console.warn("⚠️  Database retry failed:", retryError instanceof Error ? retryError.message : String(retryError));
           }
-        }, 10000);
+        }, 15000);
       }
     }
   } catch (error) {
