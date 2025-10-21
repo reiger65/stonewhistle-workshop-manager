@@ -891,11 +891,16 @@ class HybridStorage implements IStorage {
     this.memStorage = new MemStorage();
     
     // Check if we should use database
-    this.initializeDatabase();
+    this.initializeDatabase().catch(error => {
+      console.error("Failed to initialize database:", error);
+    });
   }
 
   private async initializeDatabase() {
     try {
+      console.log("🔍 Initializing database connection...");
+      console.log("🔗 DATABASE_URL:", process.env.DATABASE_URL ? "SET" : "NOT SET");
+      
       // Check if DATABASE_URL is set and not pointing to localhost
       if (!process.env.DATABASE_URL) {
         console.warn("⚠️  DATABASE_URL not set, using memory storage");
@@ -908,10 +913,12 @@ class HybridStorage implements IStorage {
           process.env.DATABASE_URL.includes('127.0.0.1') ||
           process.env.DATABASE_URL.includes('::1')) {
         console.warn("⚠️  DATABASE_URL points to localhost, using memory storage");
+        console.log("🔗 DATABASE_URL contains localhost:", process.env.DATABASE_URL);
         this.useDatabase = false;
         return;
       }
 
+      console.log("🔗 Testing database connection...");
       // Test database connection
       const isConnected = await this.databaseStorage.checkDatabaseConnection();
       if (isConnected) {
@@ -923,6 +930,7 @@ class HybridStorage implements IStorage {
       }
     } catch (error) {
       console.warn("⚠️  Database initialization failed, using memory storage:", error.message);
+      console.error("❌ Full error:", error);
       this.useDatabase = false;
     }
   }
