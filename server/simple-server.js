@@ -93,6 +93,37 @@ app.get('/api/debug', async (req, res) => {
   }
 });
 
+// Test endpoint to check if the issue is with the data format
+app.get('/api/test-orders', async (req, res) => {
+  console.log('🧪 Test orders endpoint requested');
+  try {
+    const client = await getDbClient();
+    if (client) {
+      console.log('🔍 Querying database for test orders...');
+      const result = await client.query('SELECT * FROM orders ORDER BY order_number ASC LIMIT 3');
+      console.log(`✅ Found ${result.rows.length} test orders in database`);
+      
+      // Log first order to see the structure
+      if (result.rows.length > 0) {
+        console.log('📋 First test order structure:', JSON.stringify(result.rows[0], null, 2));
+      }
+      
+      res.json({
+        success: true,
+        count: result.rows.length,
+        orders: result.rows,
+        timestamp: new Date().toISOString()
+      });
+    } else {
+      console.log('❌ No database connection for test');
+      res.json({ success: false, error: 'No database connection' });
+    }
+  } catch (error) {
+    console.error('❌ Error fetching test orders:', error.message);
+    res.json({ success: false, error: error.message });
+  }
+});
+
 // API endpoints
 app.get('/api/orders', async (req, res) => {
   console.log('📋 Orders API requested');
