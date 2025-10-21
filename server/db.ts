@@ -1,16 +1,16 @@
-import { Pool, neonConfig } from '@neondatabase/serverless';
-import { drizzle } from 'drizzle-orm/neon-serverless';
-import ws from "ws";
+import pkg from 'pg';
+const { Pool } = pkg;
+import { drizzle } from 'drizzle-orm/node-postgres';
 import * as schema from "@shared/schema";
 
-neonConfig.webSocketConstructor = ws;
-
-// For local development, use a fallback DATABASE_URL if not set
+// Use DATABASE_URL from environment (Railway will provide this)
 const databaseUrl = process.env.DATABASE_URL || 'postgresql://hanshoukes@localhost:5432/stonewhistle';
 
 if (!process.env.DATABASE_URL) {
   console.warn("⚠️  DATABASE_URL not set, using fallback for local development");
 }
+
+console.log(`🔗 Connecting to database: ${databaseUrl.replace(/:[^:]*@/, ':***@')}`);
 
 export const pool = new Pool({ connectionString: databaseUrl });
 export const db = drizzle(pool, { schema });
