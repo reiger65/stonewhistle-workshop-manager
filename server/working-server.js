@@ -121,6 +121,7 @@ app.post('/api/test-login', (req, res) => {
 });
 
 // Catch-all handler: send back React's index.html file for any non-API routes
+// This must be LAST to avoid intercepting API routes
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, '../dist/public/index.html'));
 });
