@@ -1,6 +1,12 @@
 const express = require('express');
 const app = express();
 
+// Log environment info
+console.log('🔍 Environment check:');
+console.log('PORT:', process.env.PORT);
+console.log('NODE_ENV:', process.env.NODE_ENV);
+console.log('DATABASE_URL:', process.env.DATABASE_URL ? 'SET' : 'NOT SET');
+
 // Basic middleware
 app.use(express.json());
 
@@ -17,6 +23,15 @@ app.get('/health', (req, res) => {
 // Test route
 app.get('/test', (req, res) => {
   res.json({ message: 'Minimal server is working!' });
+});
+
+// Root route
+app.get('/', (req, res) => {
+  res.json({ 
+    message: 'Stonewhistle Workshop Manager - Minimal Server',
+    status: 'running',
+    timestamp: new Date().toISOString()
+  });
 });
 
 // Start server
