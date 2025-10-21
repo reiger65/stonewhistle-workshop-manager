@@ -102,6 +102,12 @@ app.get('/api/orders', async (req, res) => {
       console.log('🔍 Querying database for orders...');
       const result = await client.query('SELECT * FROM orders ORDER BY order_number ASC');
       console.log(`✅ Found ${result.rows.length} orders in database`);
+      
+      // Log first order to see the structure
+      if (result.rows.length > 0) {
+        console.log('📋 First order structure:', JSON.stringify(result.rows[0], null, 2));
+      }
+      
       res.json(result.rows);
     } else {
       console.log('❌ No database connection');
