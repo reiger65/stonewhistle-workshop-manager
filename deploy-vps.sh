@@ -43,3 +43,4 @@ pm2 startup
 # Setup Nginx (optional)
 sudo apt install nginx -y
 # Configure Nginx reverse proxy to port 3000
+

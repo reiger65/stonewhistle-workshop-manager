@@ -70,3 +70,4 @@ model Item {
   @@index([createdAt])
   @@index([type])
 }
+
