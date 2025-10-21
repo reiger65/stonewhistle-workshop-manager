@@ -74,6 +74,16 @@ export class DatabaseStorage implements IStorage {
     }
   }
 
+  async checkDatabaseConnection(): Promise<boolean> {
+    try {
+      const result = await pool.query('SELECT 1 as connected');
+      return !!result.rows[0]?.connected;
+    } catch (error) {
+      console.warn("⚠️  Database connection test failed:", error.message);
+      return false;
+    }
+  }
+
   private async testDatabaseConnection(): Promise<boolean> {
     try {
       // Check if DATABASE_URL is set and not pointing to localhost

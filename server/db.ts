@@ -17,7 +17,14 @@ if (!process.env.DATABASE_URL) {
   } catch (error) {
     console.error("❌ Invalid DATABASE_URL format:", process.env.DATABASE_URL);
     console.error("Error:", error);
-    // Use fallback for local development
+    
+    // For Railway/production, don't use fallback - let it fail properly
+    if (process.env.NODE_ENV === 'production' || process.env.RAILWAY_ENVIRONMENT) {
+      console.error("❌ Invalid DATABASE_URL in production environment - deployment will fail");
+      throw new Error(`Invalid DATABASE_URL format: ${error.message}`);
+    }
+    
+    // Only use fallback for local development
     databaseUrl = 'postgresql://hanshoukes@localhost:5432/stonewhistle';
     console.warn("⚠️  Using fallback database URL for local development");
   }
