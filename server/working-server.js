@@ -27,6 +27,15 @@ app.get('/api/health', (req, res) => {
   });
 });
 
+// Test endpoint to verify server is working
+app.get('/api/test', (req, res) => {
+  console.log('🧪 Test endpoint requested');
+  res.json({ 
+    message: 'Server is working!',
+    timestamp: new Date().toISOString()
+  });
+});
+
 // Mock API endpoints to prevent frontend errors
 app.get('/api/orders', (req, res) => {
   console.log('📋 Orders API requested');
@@ -94,6 +103,21 @@ app.post('/api/auth/login', (req, res) => {
 app.post('/api/auth/logout', (req, res) => {
   console.log('🚪 Logout requested');
   res.json({ success: true, message: 'Logout successful' });
+});
+
+// Simple test login endpoint
+app.post('/api/test-login', (req, res) => {
+  console.log('🧪 Test login requested');
+  console.log('📝 Request body:', req.body);
+  const { username, password } = req.body;
+  console.log('👤 Username:', username);
+  console.log('🔑 Password:', password);
+  
+  res.json({ 
+    success: true, 
+    message: 'Test login successful',
+    received: { username, password }
+  });
 });
 
 // Catch-all handler: send back React's index.html file for any non-API routes
