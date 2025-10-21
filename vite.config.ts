@@ -13,15 +13,11 @@ export default defineConfig({
   server: {
     proxy: {
       '/api': {
-        target: process.env.NODE_ENV === 'production' 
-          ? 'https://stonewhistle-workshop-manager-production.up.railway.app'
-          : 'http://localhost:3000',
+        target: 'http://localhost:3000',
         changeOrigin: true,
       },
       '/ws': {
-        target: process.env.NODE_ENV === 'production'
-          ? 'https://stonewhistle-workshop-manager-production.up.railway.app'
-          : 'http://localhost:3000',
+        target: 'http://localhost:3000',
         ws: true,
         changeOrigin: true,
       },
