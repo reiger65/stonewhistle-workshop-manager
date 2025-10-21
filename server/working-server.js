@@ -38,103 +38,30 @@ app.get('/api/test', (req, res) => {
   });
 });
 
-// Mock API endpoints with sample data
+// Mock API endpoints to prevent frontend errors
 app.get('/api/orders', (req, res) => {
   console.log('📋 Orders API requested');
-  const sampleOrders = [
-    {
-      id: 1,
-      orderNumber: 'SW-1001',
-      status: 'pending',
-      customerName: 'John Doe',
-      customerEmail: 'john@example.com',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    },
-    {
-      id: 2,
-      orderNumber: 'SW-1002',
-      status: 'in_progress',
-      customerName: 'Jane Smith',
-      customerEmail: 'jane@example.com',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    }
-  ];
-  res.json(sampleOrders);
+  res.json([]);
 });
 
 app.get('/api/order-items', (req, res) => {
   console.log('📦 Order items API requested');
-  const sampleItems = [
-    {
-      id: 1,
-      orderId: 1,
-      instrumentType: 'INNATO',
-      tuningNote: 'Gm3',
-      serialNumber: 'SW001',
-      status: 'pending'
-    },
-    {
-      id: 2,
-      orderId: 1,
-      instrumentType: 'NATEY',
-      tuningNote: 'Am4',
-      serialNumber: 'SW002',
-      status: 'in_progress'
-    }
-  ];
-  res.json(sampleItems);
+  res.json([]);
 });
 
 app.get('/api/settings', (req, res) => {
   console.log('⚙️ Settings API requested');
-  res.json({ 
-    materialSettings: {
-      defaultBoxMaterial: 'Standard Box',
-      defaultBagMaterial: 'Standard Bag'
-    }
-  });
+  res.json({ materialSettings: {} });
 });
 
 app.get('/api/materials', (req, res) => {
   console.log('📦 Materials API requested');
-  const sampleMaterials = [
-    {
-      id: 1,
-      name: 'Standard Box',
-      type: 'box',
-      quantity: 100,
-      isActive: true
-    },
-    {
-      id: 2,
-      name: 'Premium Box',
-      type: 'box',
-      quantity: 50,
-      isActive: true
-    }
-  ];
-  res.json(sampleMaterials);
+  res.json([]);
 });
 
 app.get('/api/molds', (req, res) => {
   console.log('🔧 Molds API requested');
-  const sampleMolds = [
-    {
-      id: 1,
-      name: '12 17 19',
-      instrumentType: 'INNATO',
-      isActive: true
-    },
-    {
-      id: 2,
-      name: '14',
-      instrumentType: 'NATEY',
-      isActive: true
-    }
-  ];
-  res.json(sampleMolds);
+  res.json([]);
 });
 
 app.get('/api/mold-mappings', (req, res) => {
@@ -144,19 +71,7 @@ app.get('/api/mold-mappings', (req, res) => {
 
 app.get('/api/resellers', (req, res) => {
   console.log('🏪 Resellers API requested');
-  const sampleResellers = [
-    {
-      id: 1,
-      name: 'Music Store A',
-      isActive: true
-    },
-    {
-      id: 2,
-      name: 'Music Store B',
-      isActive: true
-    }
-  ];
-  res.json(sampleResellers);
+  res.json([]);
 });
 
 // Authentication endpoints - support both endpoints
