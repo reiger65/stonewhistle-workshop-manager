@@ -1,4 +1,5 @@
 const express = require('express');
+const path = require('path');
 const app = express();
 
 // Log environment info
@@ -9,6 +10,24 @@ console.log('DATABASE_URL:', process.env.DATABASE_URL ? 'SET' : 'NOT SET');
 
 // Basic middleware
 app.use(express.json());
+
+// Serve static files from the built React app
+app.use(express.static(path.join(__dirname, '../dist/public')));
+
+// API routes
+app.get('/api/health', (req, res) => {
+  console.log('🏥 Health check requested');
+  res.status(200).json({ 
+    status: 'healthy', 
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime()
+  });
+});
+
+// Catch-all handler: send back React's index.html file for any non-API routes
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, '../dist/public/index.html'));
+});
 
 // Simple health check
 app.get('/health', (req, res) => {
