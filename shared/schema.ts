@@ -139,38 +139,16 @@ export const orders = pgTable("orders", {
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 
-export const insertOrderSchema = z.object({
-  orderNumber: z.string(),
-  shopifyOrderId: z.string().optional(),
-  customerName: z.string(),
-  customerEmail: z.string().optional(),
-  customerPhone: z.string().optional(),
-  customerAddress: z.string().optional(),
-  customerCity: z.string().optional(),
-  customerState: z.string().optional(),
-  customerZip: z.string().optional(),
-  customerCountry: z.string().optional(),
-  orderType: orderTypeEnum,
-  isReseller: z.boolean().optional(),
-  resellerNickname: z.string().optional(),
-  status: orderStatusEnum.optional(),
-  orderDate: z.union([z.string(), z.date()]).optional(),
-  deadline: z.union([z.string(), z.date(), z.null()]).optional(),
-  notes: z.string().optional(),
-  progress: z.number().optional(),
-  specifications: z.record(z.string(), z.string()).optional(),
-  statusChangeDates: z.record(z.string(), z.union([z.string(), z.date()])).optional(),
-  buildDate: z.union([z.string(), z.date(), z.null()]).optional(),
-  trackingNumber: z.string().optional(),
-  trackingCompany: z.string().optional(),
-  trackingUrl: z.string().optional(),
-  shippedDate: z.union([z.string(), z.date(), z.null()]).optional(),
-  estimatedDeliveryDate: z.union([z.string(), z.date(), z.null()]).optional(),
-  deliveryStatus: z.string().optional(),
-  deliveredDate: z.union([z.string(), z.date(), z.null()]).optional(),
-  isUrgent: z.boolean().optional(),
-  archived: z.boolean().optional()
-});
+export const insertOrderSchema = createInsertSchema(orders)
+  .omit({ id: true, createdAt: true, updatedAt: true })
+  .extend({
+    orderType: orderTypeEnum,
+    status: orderStatusEnum,
+    deadline: z.union([z.string(), z.date(), z.null()]).optional(),
+    orderDate: z.union([z.string(), z.date()]).optional(),
+    specifications: z.record(z.string(), z.string()).optional(),
+    statusChangeDates: z.record(z.string(), z.union([z.string(), z.date()])).optional()
+  });
 
 export type InsertOrder = z.infer<typeof insertOrderSchema>;
 export type Order = typeof orders.$inferSelect & {
