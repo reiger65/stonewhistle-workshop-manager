@@ -32,7 +32,9 @@ app.get('/api/test', (req, res) => {
   console.log('🧪 Test endpoint requested');
   res.json({ 
     message: 'Server is working!',
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
+    environment: process.env.NODE_ENV || 'development',
+    port: process.env.PORT || 5000
   });
 });
 
@@ -131,4 +133,6 @@ const port = process.env.PORT || 5000;
 app.listen(port, '0.0.0.0', () => {
   console.log(`✅ Working server running on port ${port}`);
   console.log(`🌐 Server accessible at http://0.0.0.0:${port}`);
+  console.log(`🔧 Environment: ${process.env.NODE_ENV || 'development'}`);
+  console.log(`📊 Railway deployment ready!`);
 });
